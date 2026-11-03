@@ -1,0 +1,8 @@
+@page "/genres/{slug}"
+@model MovieHub.Pages.Genres.GenreModel
+@{ ViewData["Title"] = Model.Genre.Name; }
+<div class="page">
+    <p class="page-sub" style="margin-bottom:4px"><a href="/genres">← All genres</a></p>
+    <h1 class="page-title">@Model.Genre.Name</h1>
+    <partial name="_Browse" model="Model.Browse" />
+</div>

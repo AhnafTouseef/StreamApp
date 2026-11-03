@@ -1,0 +1,24 @@
+@model (string BasePath, IDictionary<string, string?> Query, int Page, int TotalPages)
+@{
+    if (Model.TotalPages <= 1) { return; }
+    string Link(int page)
+    {
+        var parts = Model.Query.Where(kv => !string.IsNullOrEmpty(kv.Value) && kv.Key != "page")
+            .Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value!)}").ToList();
+        if (page > 1) parts.Add($"page={page}");
+        return Model.BasePath + (parts.Count > 0 ? "?" + string.Join("&", parts) : "");
+    }
+    var start = Math.Max(1, Model.Page - 2);
+    var end = Math.Min(Model.TotalPages, Model.Page + 2);
+}
+<nav class="pager" aria-label="Pages">
+    @if (Model.Page > 1) { <a href="@Link(Model.Page - 1)" rel="prev">‹ Prev</a> }
+    @if (start > 1) { <a href="@Link(1)">1</a> @if (start > 2) { <span class="gap">…</span> } }
+    @for (var p = start; p <= end; p++)
+    {
+        if (p == Model.Page) { <span class="current" aria-current="page">@p</span> }
+        else { <a href="@Link(p)">@p</a> }
+    }
+    @if (end < Model.TotalPages) { @if (end < Model.TotalPages - 1) { <span class="gap">…</span> } <a href="@Link(Model.TotalPages)">@Model.TotalPages</a> }
+    @if (Model.Page < Model.TotalPages) { <a href="@Link(Model.Page + 1)" rel="next">Next ›</a> }
+</nav>

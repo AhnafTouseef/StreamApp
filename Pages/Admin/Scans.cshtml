@@ -1,0 +1,41 @@
+@page "/admin/scans"
+@model MovieHub.Pages.Admin.ScansModel
+@{ ViewData["Title"] = "Scans"; ViewData["Active"] = "scans"; if (Model.AnyRunning) { ViewData["Refresh"] = 5; } }
+<h1>Scans</h1>
+<p class="muted">Scans run only when a category page is opened after its cooldown, or when started here. There is no background crawler.</p>
+@if (Model.AnyRunning) { <p class="notice is-live">A scan is running. This page refreshes every few seconds.</p> }
+
+<div class="table-wrap"><table class="data">
+    <thead><tr><th>Source</th><th>Status</th><th>Progress</th><th>Last attempt (UTC)</th><th>Last success (UTC)</th><th>Cooldown</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var s in Model.Sources)
+    {
+        var p = Model.Running.TryGetValue(s.Id, out var pr) ? pr : null;
+        var failed = s.LastScanStatus is ScanRunStatus.Failed or ScanRunStatus.Interrupted or ScanRunStatus.Partial;
+        <tr>
+            <td><strong>@s.Name</strong>@if (!s.IsEnabled) { <span class="status">Disabled</span> }</td>
+            <td>@if (p != null) { <span class="status Running">@p.Phase</span> } else if (s.LastScanStatus.HasValue) { <span class="status @s.LastScanStatus">@s.LastScanStatus</span> } else { <span class="muted">never</span> }</td>
+            <td>
+                @if (p != null)
+                {
+                    <div>@p.Processed / @p.Total folders · +@p.Added new · @p.Updated updated · @p.Failed failed</div>
+                    <div class="muted truncate">@p.Current</div>
+                }
+                else { <span class="muted">—</span> }
+            </td>
+            <td>@(s.LastScanAttempt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+            <td>@(s.LastSuccessfulScan?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+            <td>@s.CooldownHours h</td>
+            <td class="actions">
+                <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(p != null)">Scan now</button></form>
+                <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" class="inline"><button class="btn btn-ghost btn-sm" type="submit" disabled="@(p != null)">Deep scan</button></form>
+                @if (failed) { <form method="post" asp-page-handler="Retry" asp-route-id="@s.Id" class="inline"><button class="btn btn-ghost btn-sm" type="submit" disabled="@(p != null)">Retry</button></form> }
+            </td>
+        </tr>
+    }
+    @if (Model.Sources.Count == 0) { <tr><td colspan="7" class="muted">No sources registered. Add one under <a href="/admin/sources">Sources</a>.</td></tr> }
+    </tbody>
+</table></div>
+
+<h2 style="margin-top:28px">History</h2>
+<partial name="_ScanTable" model="Model.History" />

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" role="img" aria-label="No poster available">
+  <rect width="300" height="450" fill="#1a1e28"/>
+  <rect x="14" y="14" width="272" height="422" rx="10" fill="none" stroke="#2c3242" stroke-width="2" stroke-dasharray="6 8"/>
+  <g fill="none" stroke="#5c6479" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" transform="translate(105 160)">
+    <rect x="0" y="0" width="90" height="70" rx="8"/>
+    <path d="M36 20 L60 35 L36 50 Z" fill="#5c6479"/>
+    <path d="M10 -14 L45 -4 M80 -14 L45 -4"/>
+  </g>
+  <text x="150" y="290" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#7b839a">No poster</text>
+</svg>

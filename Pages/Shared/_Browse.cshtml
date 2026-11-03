@@ -1,0 +1,64 @@
+@model BrowseViewModel
+@{
+    var q = new Dictionary<string, string?>
+    {
+        ["q"] = Model.Query, ["genre"] = Model.Genre, ["year"] = Model.Year?.ToString(), ["sort"] = Model.Sort == "recent" ? null : Model.Sort
+    };
+}
+@if (Model.Tabs.Count > 0)
+{
+    <div class="tabs" role="tablist">
+        @foreach (var t in Model.Tabs)
+        {
+            <a class="tab @(t.Active ? "is-active" : "")" href="@t.Url">@t.Name</a>
+        }
+    </div>
+}
+@if (Model.ScanActive)
+{
+    <p class="notice is-live">Checking the source for newly added movies. New titles appear the next time you load this page.</p>
+}
+
+<form class="filters" method="get" action="@Model.BasePath">
+    @if (Model.ShowQuery)
+    {
+        <input type="search" name="q" value="@Model.Query" placeholder="@Model.QueryPlaceholder" aria-label="Search" />
+    }
+    <select name="genre" aria-label="Genre">
+        <option value="">All genres</option>
+        @foreach (var g in Model.Facets.Genres)
+        {
+            <option value="@g.Slug" selected="@(g.Slug == Model.Genre)">@g.Name (@g.Count)</option>
+        }
+    </select>
+    <select name="year" aria-label="Year">
+        <option value="">All years</option>
+        @foreach (var y in Model.Facets.Years)
+        {
+            <option value="@y" selected="@(y == Model.Year)">@y</option>
+        }
+    </select>
+    <select name="sort" aria-label="Sort by">
+        <option value="recent" selected="@(Model.Sort == "recent")">Recently added</option>
+        <option value="year" selected="@(Model.Sort == "year")">Release year</option>
+        <option value="rating" selected="@(Model.Sort == "rating")">Rating</option>
+        <option value="alpha" selected="@(Model.Sort == "alpha")">Alphabetical</option>
+    </select>
+    <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+    <span class="result-count">@Model.Result.TotalCount.ToString("N0") movie@(Model.Result.TotalCount == 1 ? "" : "s")</span>
+</form>
+
+@if (Model.Result.Items.Count == 0)
+{
+    <partial name="_EmptyState" model="@(Model.EmptyTitle, Model.EmptyMessage)" />
+}
+else
+{
+    <div class="grid">
+        @foreach (var m in Model.Result.Items)
+        {
+            <partial name="_MovieCard" model="m" />
+        }
+    </div>
+    <partial name="_Pagination" model="@(Model.BasePath, (IDictionary<string, string?>)q, Model.Result.Page, Model.Result.TotalPages)" />
+}

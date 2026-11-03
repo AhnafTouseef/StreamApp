@@ -1,0 +1,11 @@
+@page "/movies/{slug}"
+@model MovieHub.Pages.Movies.CategoryModel
+@{ ViewData["Title"] = Model.Resolved.Category.Name; }
+<div class="page">
+    <h1 class="page-title">@Model.Resolved.Category.Name</h1>
+    @if (!string.IsNullOrWhiteSpace(Model.Resolved.Category.Description))
+    {
+        <p class="page-sub">@Model.Resolved.Category.Description</p>
+    }
+    <partial name="_Browse" model="Model.Browse" />
+</div>

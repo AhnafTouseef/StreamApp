@@ -1,0 +1,20 @@
+@page "/genres"
+@model MovieHub.Pages.Genres.IndexModel
+@{ ViewData["Title"] = "Genres"; }
+<div class="page">
+    <h1 class="page-title">Genres</h1>
+    <p class="page-sub">Genres come from TMDB metadata of the indexed movies.</p>
+    @if (Model.Genres.Count == 0)
+    {
+        <partial name="_EmptyState" model="@("No genres yet", "Genres appear once movies have been matched with TMDB.")" />
+    }
+    else
+    {
+        <div class="genre-strip" style="padding:0">
+            @foreach (var g in Model.Genres)
+            {
+                <a class="genre-pill" href="/genres/@g.Slug">@g.Name<small>@g.Count</small></a>
+            }
+        </div>
+    }
+</div>

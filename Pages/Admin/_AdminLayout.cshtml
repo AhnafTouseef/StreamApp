@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>@(ViewData["Title"]) · MovieHub Admin</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    @if (ViewData["Refresh"] is int seconds) { <meta http-equiv="refresh" content="@seconds" /> }
+</head>
+<body>
+@{
+    var active = ViewData["Active"] as string ?? "";
+    string Cls(string k) => "item" + (k == active ? " is-active" : "");
+}
+<div class="admin-shell">
+    <aside class="admin-side">
+        <a class="brand" href="/admin"><span class="brand-mark">▶</span><span class="brand-name">Admin</span></a>
+        <a class="@Cls("dashboard")" href="/admin">Dashboard</a>
+        <a class="@Cls("categories")" href="/admin/categories">Categories</a>
+        <a class="@Cls("sources")" href="/admin/sources">Sources</a>
+        <a class="@Cls("scans")" href="/admin/scans">Scans</a>
+        <a class="@Cls("movies")" href="/admin/movies">Movies</a>
+        <a class="item" href="/" target="_blank" rel="noopener">View site ↗</a>
+        <form method="post" asp-page="/Admin/Logout"><button class="btn btn-ghost btn-sm" type="submit">Sign out</button></form>
+    </aside>
+    <div class="admin-main">
+        @if (TempData["Message"] is string ok) { <div class="alert ok" role="status">@ok</div> }
+        @if (TempData["Error"] is string err) { <div class="alert err" role="alert">@err</div> }
+        @RenderBody()
+    </div>
+</div>
+</body>
+</html>

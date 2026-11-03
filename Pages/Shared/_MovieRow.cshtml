@@ -1,0 +1,19 @@
+@model MovieRowModel
+@{
+    var selectable = ViewData["Selectable"] as bool? ?? false;
+}
+<section class="row" aria-labelledby="row-@Model.Id">
+    <div class="row-head">
+        <h2 id="row-@Model.Id">@Model.Title</h2>
+        <div class="row-nav">
+            <button type="button" class="row-btn" data-dir="-1" aria-label="Scroll left">‹</button>
+            <button type="button" class="row-btn" data-dir="1" aria-label="Scroll right">›</button>
+        </div>
+    </div>
+    <div class="row-track" tabindex="0">
+        @foreach (var m in Model.Items)
+        {
+            <partial name="_MovieCard" model="m" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = selectable }' />
+        }
+    </div>
+</section>

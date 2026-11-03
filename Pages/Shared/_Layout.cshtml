@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0c10" />
+    <title>@(ViewData["Title"] is string t && t.Length > 0 ? t + " · MovieHub" : "MovieHub")</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    @await RenderSectionAsync("Head", required: false)
+</head>
+<body class="@(ViewData["BodyClass"])">
+    <header class="site-header" id="site-header">
+        <a class="brand" href="/" aria-label="MovieHub home"><span class="brand-mark">▶</span><span class="brand-name">MovieHub</span></a>
+        <button class="nav-toggle" id="nav-toggle" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><span></span><span></span><span></span></button>
+        @await Component.InvokeAsync("Nav")
+        <form class="header-search" action="/search" method="get" role="search">
+            <input type="search" name="q" placeholder="Search movies" aria-label="Search movies" autocomplete="off" />
+        </form>
+    </header>
+
+    <main id="main">@RenderBody()</main>
+
+    <footer class="site-footer">
+        <span>Movies are streamed directly from the configured local servers. Metadata by TMDB.</span>
+        <a href="/admin">Admin</a>
+    </footer>
+
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

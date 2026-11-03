@@ -1,0 +1,116 @@
+@page "/movie/{id:int}"
+@model MovieHub.Pages.Movies.DetailsModel
+@using System.Globalization
+@{
+    var m = Model.Movie;
+    ViewData["Title"] = m.Title + (m.ReleaseYear.HasValue ? $" ({m.ReleaseYear})" : "");
+    string Fmt(double v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+    string Size(long? b) => b is null ? "" : b >= 1L << 30 ? $"{b / (double)(1L << 30):0.0} GB" : $"{b / (double)(1L << 20):0} MB";
+    string Dur(double? s) => s is null ? "" : TimeSpan.FromSeconds(s.Value).ToString(s >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
+}
+<section class="detail-hero">
+    <div class="detail-bg" style="@(m.BackdropUrl != null ? $"background-image:url('{m.BackdropUrl}')" : "")"></div>
+    <div class="detail-grid">
+        <div class="detail-poster"><img src="@(m.PosterUrl ?? "/images/poster-fallback.svg")" alt="@m.Title poster" onerror="this.onerror=null;this.src='/images/poster-fallback.svg'" /></div>
+        <div class="detail-info">
+            <h1>@m.Title</h1>
+            @if (!string.IsNullOrEmpty(m.OriginalTitle) && !string.Equals(m.OriginalTitle, m.Title, StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="original-title">Original title: @m.OriginalTitle</div>
+            }
+            <div class="meta-line">
+                @if (m.ReleaseYear.HasValue) { <span>@m.ReleaseYear</span> }
+                @if (m.Runtime.HasValue) { <span>@(m.Runtime / 60)h @(m.Runtime % 60)m</span> }
+                @if (m.TmdbRating.HasValue) { <span class="rating" title="TMDB rating">★ @Fmt(m.TmdbRating.Value) <small class="muted">TMDB</small></span> }
+                @if (m.ImdbRating.HasValue) { <span class="rating" title="IMDb rating">★ @Fmt(m.ImdbRating.Value) <small class="muted">IMDb</small></span> }
+                @if (!string.IsNullOrEmpty(m.Quality)) { <span class="chip">@m.Quality</span> }
+                @foreach (var g in m.MovieGenres.Select(x => x.Genre).OrderBy(x => x.Name)) { <a class="chip" href="/genres/@g.Slug">@g.Name</a> }
+            </div>
+            @if (!string.IsNullOrEmpty(m.Tagline)) { <div class="tagline">@m.Tagline</div> }
+            <p>@(m.Overview ?? "No overview is available for this movie.")</p>
+
+            <div class="hero-actions">
+                @if (m.MediaFiles.Count > 0) { <a class="btn btn-primary" href="/watch/@m.Id">▶ Watch Now</a> }
+                <a class="btn btn-ghost" href="/movies/@m.Category.Slug">More in @m.Category.Name</a>
+            </div>
+
+            <dl class="facts">
+                @if (!string.IsNullOrEmpty(m.Director)) { <dt>Director</dt><dd>@m.Director</dd> }
+                @if (!string.IsNullOrEmpty(m.ProductionInfo)) { <dt>Production</dt><dd>@m.ProductionInfo</dd> }
+                @if (m.ReleaseDate.HasValue) { <dt>Released</dt><dd>@m.ReleaseDate.Value.ToString("d MMMM yyyy", CultureInfo.InvariantCulture)</dd> }
+                <dt>Category</dt><dd>@m.Category.Name</dd>
+                @if (m.MatchStatus != MatchStatus.Matched && m.MatchStatus != MatchStatus.Manual) { <dt>Metadata</dt><dd class="muted">Not matched to TMDB yet</dd> }
+            </dl>
+        </div>
+    </div>
+</section>
+
+<div class="detail-section">
+    @if (Model.Cast.Count > 0)
+    {
+        <h2 class="section-title">Cast</h2>
+        <div class="cast">
+            @foreach (var c in Model.Cast)
+            {
+                <div class="cast-item">
+                    @if (!string.IsNullOrEmpty(c.Photo)) { <img src="@c.Photo" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /> } else { <div class="ph">👤</div> }
+                    <strong>@c.Name</strong>
+                    @if (!string.IsNullOrEmpty(c.Character)) { <span>@c.Character</span> }
+                </div>
+            }
+        </div>
+    }
+
+    <h2 class="section-title">Available source</h2>
+    <div class="panel">
+        <p class="muted" style="margin-top:0">From <strong>@m.Source.Name</strong> · folder <span class="mono">@m.FolderName</span></p>
+        @if (m.MediaFiles.Count == 0)
+        {
+            <p class="muted">No playable video files are recorded for this entry.</p>
+        }
+        else
+        {
+            <ul class="source-list">
+                @foreach (var f in m.MediaFiles.OrderBy(x => x.FileName))
+                {
+                    var audio = f.Streams.Where(s => s.StreamType == StreamKind.Audio).ToList();
+                    var subs = f.Streams.Count(s => s.StreamType == StreamKind.Subtitle) + m.Subtitles.Count;
+                    <li>
+                        <div class="grow">
+                            <span class="name">@f.FileName</span>
+                            <span class="specs">
+                                @string.Join(" · ", new[] { f.Extension.TrimStart('.').ToUpperInvariant(), f.Resolution, f.VideoCodec, f.AudioCodec, Size(f.FileSize), Dur(f.Duration) }.Where(s => !string.IsNullOrEmpty(s)))
+                                @if (audio.Count > 0) { <text> · Audio: @string.Join(", ", audio.Select(a => a.Language ?? "Unknown"))</text> }
+                                @if (subs > 0) { <text> · @subs subtitle@(subs == 1 ? "" : "s")</text> }
+                            </span>
+                        </div>
+                        <a class="btn btn-primary btn-sm" href="/watch/@m.Id?file=@f.Id">▶ Play</a>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+
+    @if (Model.OtherCopies.Count > 0)
+    {
+        <h2 class="section-title">Other copies in the catalog</h2>
+        <div class="panel">
+            <ul class="source-list">
+                @foreach (var c in Model.OtherCopies)
+                {
+                    <li>
+                        <div class="grow"><span class="name">@c.Title @(c.Year.HasValue ? $"({c.Year})" : "") @(c.Quality)</span><span class="specs">@c.SourceName</span></div>
+                        <a class="btn btn-ghost btn-sm" href="/movie/@c.Id">View</a>
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+</div>
+
+@if (Model.Similar.Count > 0)
+{
+    <div style="margin-top:34px">
+        <partial name="_MovieRow" model="@(new MovieRowModel { Id = "similar", Title = "Similar movies", Items = Model.Similar })" />
+    </div>
+}

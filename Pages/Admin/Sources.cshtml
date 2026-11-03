@@ -1,0 +1,71 @@
+@page "/admin/sources"
+@model MovieHub.Pages.Admin.SourcesModel
+@{ ViewData["Title"] = "Sources"; ViewData["Active"] = "sources"; var e = Model.Input; }
+<h1>Sources</h1>
+<p class="muted">Only registered, enabled sources are ever contacted. Add the root directory of an ISP listing, pick how it is organised, and assign it to a category.</p>
+
+<form method="post" asp-page-handler="Save" class="panel">
+    <div asp-validation-summary="All" class="alert err"></div>
+    <h3>@(e.Id == 0 ? "Register a source" : "Edit source")</h3>
+    <input type="hidden" asp-for="Input.Id" />
+    <div class="form-grid">
+        <div class="field"><label asp-for="Input.Name">Name</label><input asp-for="Input.Name" required maxlength="200" /></div>
+        <div class="field"><label asp-for="Input.CategoryId">Category</label>
+            <select asp-for="Input.CategoryId">@foreach (var c in Model.Categories) { <option value="@c.Id">@c.Name</option> }</select></div>
+        <div class="field wide"><label asp-for="Input.RootUrl">Root directory URL</label><input asp-for="Input.RootUrl" required placeholder="http://172.16.50.7/DHAKA-FLIX-14/English%20Movies%20(1080p)/" /><span class="hint">An http(s) directory listing (nginx/h5ai). The crawler never leaves this URL.</span></div>
+        <div class="field"><label asp-for="Input.ScanStrategy">Scan strategy</label>
+            <select asp-for="Input.ScanStrategy" asp-items="Html.GetEnumSelectList<MovieHub.Models.ScanStrategy>()"></select>
+            <span class="hint"><b>Auto</b>: detect from the listing · <b>YearBased</b>: year folders, only the latest year on routine scans · <b>Flat</b>: each folder is a movie · <b>RecursiveDiscovery</b>: walk the tree, a folder with videos is a movie · <b>ManualFull</b>: like recursive, never scanned automatically.</span></div>
+        <div class="field"><label asp-for="Input.CooldownHours">Cooldown (hours)</label><input asp-for="Input.CooldownHours" type="number" min="1" max="8760" /><span class="hint">Minimum time between automatic scans triggered by page visits. The first scan of a source imports every year folder (newest first, in the background, so it can take a long time on a large server); later routine scans only re-check the latest year.</span></div>
+        <div class="field wide"><label asp-for="Input.IncludedFolders">Included folders (optional, one per line, * and ? allowed)</label><textarea asp-for="Input.IncludedFolders" placeholder="James Bond Collection"></textarea><span class="hint">Year-based sources: year folders are always scanned; other folders (collections) are scanned only when listed here.</span></div>
+        <div class="field wide"><label asp-for="Input.ExcludedFolders">Excluded folders (optional, one per line)</label><textarea asp-for="Input.ExcludedFolders" placeholder="Marvel MCU"></textarea></div>
+        <div class="field"><label><input type="checkbox" asp-for="Input.IsEnabled" /> Crawling enabled</label></div>
+    </div>
+    <div class="actions" style="margin-top:14px">
+        <button class="btn btn-primary" type="submit">@(e.Id == 0 ? "Register source" : "Save changes")</button>
+        @if (e.Id != 0) { <a class="btn btn-ghost" href="/admin/sources">Cancel</a> }
+    </div>
+</form>
+
+@if (Model.TestResult != null)
+{
+    <div class="alert @(Model.TestResult.Success ? "ok" : "err")">
+        <strong>Connection test: @Model.TestResult.Message</strong>
+        @if (Model.TestResult.Suggestion != null) { <div>Suggested strategy: <b>@Model.TestResult.Suggestion.Strategy</b> — @Model.TestResult.Suggestion.Reason</div> }
+        @if (Model.TestResult.Sample.Count > 0) { <div class="muted mono" style="margin-top:6px">@string.Join(" · ", Model.TestResult.Sample)</div> }
+    </div>
+}
+
+<div class="table-wrap"><table class="data">
+    <thead><tr><th>Source</th><th>Category</th><th>Strategy</th><th>Cooldown</th><th>Last success (UTC)</th><th>Status</th><th>Movies</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var s in Model.Sources)
+    {
+        var running = Model.Running.TryGetValue(s.Id, out var p) ? p : null;
+        <tr>
+            <td><strong>@s.Name</strong><br /><span class="mono muted truncate" title="@s.RootUrl">@s.RootUrl</span></td>
+            <td>@s.Category.Name</td>
+            <td>@s.ScanStrategy</td>
+            <td>@s.CooldownHours h</td>
+            <td>@(s.LastSuccessfulScan?.ToString("yyyy-MM-dd HH:mm") ?? "never")</td>
+            <td>
+                @if (running != null) { <span class="status Running">@running.Phase @(running.Total > 0 ? $"{running.Processed}/{running.Total}" : "")</span> }
+                else if (!s.IsEnabled) { <span class="status">Disabled</span> }
+                else if (s.LastScanStatus.HasValue) { <span class="status @s.LastScanStatus">@s.LastScanStatus</span> }
+                else { <span class="muted">not scanned</span> }
+                @if (!string.IsNullOrEmpty(s.LastError)) { <div class="muted" style="max-width:260px">@s.LastError</div> }
+            </td>
+            <td>@Model.MovieCounts.GetValueOrDefault(s.Id)</td>
+            <td class="actions">
+                <a class="btn btn-ghost btn-sm" href="/admin/sources?edit=@s.Id">Edit</a>
+                <form method="post" asp-page-handler="Test" asp-route-id="@s.Id" class="inline"><button class="btn btn-ghost btn-sm" type="submit">Test</button></form>
+                <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(running != null)">Scan now</button></form>
+                <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" class="inline" onsubmit="return confirm('A deep scan re-lists every year folder and may take a while. Continue?')"><button class="btn btn-ghost btn-sm" type="submit" disabled="@(running != null)">Deep scan</button></form>
+                <form method="post" asp-page-handler="Toggle" asp-route-id="@s.Id" class="inline"><button class="btn btn-ghost btn-sm" type="submit">@(s.IsEnabled ? "Disable" : "Enable")</button></form>
+                <form method="post" asp-page-handler="Delete" asp-route-id="@s.Id" class="inline" onsubmit="return confirm('Delete this source?')"><button class="btn btn-danger btn-sm" type="submit">Delete</button></form>
+            </td>
+        </tr>
+    }
+    @if (Model.Sources.Count == 0) { <tr><td colspan="8" class="muted">No sources registered.</td></tr> }
+    </tbody>
+</table></div>

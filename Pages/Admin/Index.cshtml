@@ -1,0 +1,29 @@
+@page "/admin"
+@model MovieHub.Pages.Admin.IndexModel
+@{ ViewData["Title"] = "Dashboard"; ViewData["Active"] = "dashboard"; if (Model.AnyRunning) { ViewData["Refresh"] = 8; } }
+<h1>Dashboard</h1>
+<div class="stat-grid">
+    <div class="stat"><b>@Model.TotalMovies.ToString("N0")</b><span>Movie entries</span></div>
+    <div class="stat"><b>@Model.TotalCategories</b><span>Categories</span></div>
+    <div class="stat"><b>@Model.TotalSources</b><span>Registered sources</span></div>
+    <div class="stat"><b>@(Model.LastSuccess?.ToString("yyyy-MM-dd HH:mm") ?? "never")</b><span>Last successful scan (UTC)</span></div>
+</div>
+@if (Model.AnyRunning) { <p class="notice is-live">A scan is running. This page refreshes automatically.</p> }
+
+<h2>Recently discovered movies</h2>
+<div class="table-wrap"><table class="data">
+    <thead><tr><th>Title</th><th>Year</th><th>Source</th><th>Match</th><th>Added (UTC)</th></tr></thead>
+    <tbody>
+    @foreach (var m in Model.Recent)
+    {
+        <tr><td><a href="/admin/movies/edit/@m.Id">@m.Title</a></td><td>@m.ReleaseYear</td><td>@m.SourceName</td><td><span class="status @m.MatchStatus">@m.MatchStatus</span></td><td>@m.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td></tr>
+    }
+    @if (Model.Recent.Count == 0) { <tr><td colspan="5" class="muted">Nothing indexed yet. Open <a href="/admin/scans">Scans</a> and start a scan.</td></tr> }
+    </tbody>
+</table></div>
+
+<h2 style="margin-top:28px">Recent scans</h2>
+<partial name="_ScanTable" model="Model.History" />
+
+<h2 style="margin-top:28px">Scan failures</h2>
+<partial name="_ScanTable" model="Model.Failures" />

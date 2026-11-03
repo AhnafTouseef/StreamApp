@@ -1,0 +1,31 @@
+@model MovieCardDto
+@{
+    var selectable = ViewData["Selectable"] as bool? ?? false;
+    var genres = string.Join(", ", Model.Genres);
+    var rating = Model.Rating?.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+    var sub = (Model.Year?.ToString() ?? "—") + (rating != null ? " · ★ " + rating : "");
+    // Razor omits an attribute whose value is null, so these only appear on the home page where cards can feature a movie.
+    string? F(string? v) => selectable ? (v ?? "") : null;
+}
+<a class="card" href="/movie/@Model.Id" title="@Model.Title"
+   data-feature="@F(Model.Id.ToString())" data-title="@F(Model.Title)" data-year="@F(Model.Year?.ToString())"
+   data-rating="@F(rating)" data-genres="@F(genres)" data-overview="@F(Model.Overview)" data-backdrop="@F(Model.BackdropUrl ?? Model.PosterUrl)">
+    <div class="card-poster">
+        <img src="@(Model.PosterUrl ?? "/images/poster-fallback.svg")" alt="@Model.Title poster" loading="lazy" width="300" height="450"
+             onerror="this.onerror=null;this.src='/images/poster-fallback.svg'" />
+        @if (!string.IsNullOrEmpty(Model.Quality))
+        {
+            <span class="badge-quality">@Model.Quality</span>
+        }
+        <div class="card-hover">
+            <strong>@Model.Title</strong>
+            <span>@sub</span>
+            @if (genres.Length > 0) { <small>@genres</small> }
+            <span class="card-actions"><span class="card-go" data-href="/watch/@Model.Id">▶ Watch</span></span>
+        </div>
+    </div>
+    <div class="card-meta">
+        <span class="card-title">@Model.Title</span>
+        <span class="card-sub">@sub</span>
+    </div>
+</a>

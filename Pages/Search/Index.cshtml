@@ -1,0 +1,26 @@
+@page "/search"
+@model MovieHub.Pages.Search.IndexModel
+@{ ViewData["Title"] = string.IsNullOrWhiteSpace(Model.Browse.Query) ? "Search" : $"Search: {Model.Browse.Query}"; }
+<div class="page">
+    <h1 class="page-title">Search</h1>
+    <p class="page-sub">Search by title, original title, release year or genre.</p>
+    <form class="filters" method="get" action="/search" style="margin-bottom:12px">
+        <input type="search" name="q" value="@Model.Browse.Query" placeholder="Title, year or genre" aria-label="Search" autofocus />
+        <select name="category" aria-label="Category">
+            <option value="">All categories</option>
+            @foreach (var c in Model.CategoryOptions)
+            {
+                <option value="@c.Slug" selected="@(c.Slug == Model.CategorySlug)">@c.Name</option>
+            }
+        </select>
+        <button class="btn btn-primary btn-sm" type="submit">Search</button>
+    </form>
+    @if (string.IsNullOrWhiteSpace(Model.Browse.Query) && Model.Browse.Genre == null && Model.Browse.Year == null && string.IsNullOrEmpty(Model.CategorySlug))
+    {
+        <partial name="_EmptyState" model="@("Search the catalog", "Type a title, a year such as 2019, or a genre such as Action.")" />
+    }
+    else
+    {
+        <partial name="_Browse" model="Model.Browse" />
+    }
+</div>

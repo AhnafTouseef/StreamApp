@@ -1,0 +1,20 @@
+@page "/admin/login"
+@model MovieHub.Pages.Admin.LoginModel
+@{
+    ViewData["Title"] = "Sign in";
+    Layout = "/Pages/Shared/_Layout.cshtml";
+}
+<div class="login-box">
+    <h1 style="font-size:1.4rem">Admin sign in</h1>
+    @if (!Model.Configured)
+    {
+        <div class="alert err">Admin login is disabled because no password is configured. Set <code>Admin:PasswordHash</code> (see the README) and restart.</div>
+    }
+    @if (!string.IsNullOrEmpty(Model.Error)) { <div class="alert err" role="alert">@Model.Error</div> }
+    <form method="post">
+        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+        <div class="field"><label for="u">Username</label><input id="u" name="Username" autocomplete="username" required autofocus /></div>
+        <div class="field"><label for="p">Password</label><input id="p" name="Password" type="password" autocomplete="current-password" required /></div>
+        <button class="btn btn-primary" type="submit" @(Model.Configured ? "" : "disabled")>Sign in</button>
+    </form>
+</div>

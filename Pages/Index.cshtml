@@ -1,0 +1,70 @@
+@page "/"
+@model MovieHub.Pages.IndexModel
+@using System.Text.Json
+@{
+    ViewData["Title"] = "";
+    var first = Model.Home.Featured.FirstOrDefault();
+    var heroJson = JsonSerializer.Serialize(Model.Home.Featured.Select(f => new
+    {
+        id = f.Id, title = f.Title, year = f.Year,
+        rating = f.Rating?.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture),
+        genres = f.Genres, overview = f.Overview, backdrop = f.BackdropUrl ?? f.PosterUrl
+    }));
+}
+@if (Model.Home.TotalMovies == 0)
+{
+    <div class="page">
+        <partial name="_EmptyState" model="@("The catalog is empty", "No movies have been indexed yet. Sign in to the admin panel, check that your sources are enabled and run a scan. Movies appear here as soon as the first scan finishes.")" />
+        <p style="text-align:center"><a class="btn btn-primary" href="/admin">Open admin panel</a></p>
+    </div>
+}
+else
+{
+    @if (first != null)
+    {
+        <section class="hero" id="hero" aria-label="Featured movie">
+            <div class="hero-bg" aria-hidden="true">
+                <div class="layer"></div>
+                <div class="layer"></div>
+            </div>
+            <div class="hero-body">
+                <div class="hero-copy">
+                    <div class="hero-eyebrow">Featured</div>
+                    <h1 data-f="title">@first.Title</h1>
+                    <div class="meta-line">
+                        <span data-f="year">@first.Year</span>
+                        <span class="rating" data-f="rating">@(first.Rating.HasValue ? "★ " + first.Rating.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) : "")</span>
+                        <span data-f="genres">@foreach (var g in first.Genres) { <span class="chip">@g</span> }</span>
+                    </div>
+                    <p class="overview" data-f="overview">@first.Overview</p>
+                    <div class="hero-actions">
+                        <a class="btn btn-primary" data-f="watch" href="/watch/@first.Id">▶ Watch Now</a>
+                        <a class="btn btn-ghost" data-f="more" href="/movie/@first.Id">More Details</a>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-dots" role="group" aria-label="Choose featured movie"></div>
+            <script type="application/json" id="hero-data">@Html.Raw(heroJson)</script>
+        </section>
+    }
+
+    <div class="rows">
+        @foreach (var row in Model.Home.Rows)
+        {
+            <partial name="_MovieRow" model="row" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = true }' />
+        }
+    </div>
+
+    @if (Model.Home.Genres.Count > 0)
+    {
+        <section class="home-section" aria-labelledby="genre-h">
+            <h2 id="genre-h">Browse by genre</h2>
+            <div class="genre-strip" style="padding:0">
+                @foreach (var g in Model.Home.Genres)
+                {
+                    <a class="genre-pill" href="/genres/@g.Slug">@g.Name<small>@g.Count</small></a>
+                }
+            </div>
+        </section>
+    }
+}

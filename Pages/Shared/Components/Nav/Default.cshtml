@@ -1,0 +1,32 @@
+@model IReadOnlyList<MovieHub.Models.NavCategory>
+@{
+    var path = Context.Request.Path.Value ?? "/";
+    bool Active(string p) => path.Equals(p, StringComparison.OrdinalIgnoreCase);
+}
+<nav class="site-nav" id="site-nav" aria-label="Main">
+    <a class="nav-link @(Active("/") ? "is-active" : "")" href="/">Home</a>
+    @foreach (var c in Model)
+    {
+        var href = $"/movies/{c.Slug}";
+        var active = path.StartsWith(href, StringComparison.OrdinalIgnoreCase) || c.Children.Any(ch => path.StartsWith($"/movies/{ch.Slug}", StringComparison.OrdinalIgnoreCase));
+        if (c.Children.Count == 0)
+        {
+            <a class="nav-link @(active ? "is-active" : "")" href="@href">@c.Name</a>
+        }
+        else
+        {
+            <div class="nav-group">
+                <a class="nav-link has-menu @(active ? "is-active" : "")" href="@href" aria-haspopup="true">@c.Name</a>
+                <div class="nav-menu">
+                    <a href="@href">All @c.Name</a>
+                    @foreach (var ch in c.Children)
+                    {
+                        <a href="/movies/@ch.Slug">@ch.Name</a>
+                    }
+                </div>
+            </div>
+        }
+    }
+    <a class="nav-link @(path.StartsWith("/genres", StringComparison.OrdinalIgnoreCase) ? "is-active" : "")" href="/genres">Genres</a>
+    <a class="nav-link @(Active("/search") ? "is-active" : "")" href="/search">Search</a>
+</nav>
