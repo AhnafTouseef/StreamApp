@@ -38,9 +38,7 @@ dotnet user-secrets set "Admin:PasswordHash" "<output of the previous command>"
 #   or:  export Admin__PasswordHash="v1...."
 #   For a throw-away local test only you may set Admin:Password in plain text (a warning is logged).
 
-# 3. (optional) FFprobe / FFmpeg locations if they are not on PATH
-dotnet user-secrets set "Media:FfprobePath" "/usr/bin/ffprobe"
-# dotnet user-secrets set "Media:FfmpegPath" "C:\\ffmpeg\\bin\\ffmpeg.exe"   # only if ffmpeg is not found automatically
+# 3. FFmpeg / FFprobe: nothing to configure. They live INSIDE the project, in the tools folder (see "FFmpeg inside the project" below).
 
 # 4. Run
 dotnet run
@@ -125,7 +123,7 @@ preferred over TMDB posters (`Crawler:PreferFolderPoster`). IMDb ratings come fr
 `/watch/{id}` uses a custom player. Fallback chain:
 1. play the ISP URL directly (best: no load on this server);
 2. `/media/stream/{id}` — pass-through proxy with full `Range` support, streamed in 80 KB chunks, never buffered;
-3. `/media/remux/{id}` — ffmpeg fragmented-MP4 pipe (needs ffmpeg, which is auto-detected at startup: `Media:FfmpegPath`, then next to ffprobe, then PATH);
+3. `/media/remux/{id}` — ffmpeg fragmented-MP4 pipe (needs ffmpeg, found at startup: `Media:FfmpegPath` if set, else the project's `tools` folder, then PATH);
 4. a clear error message.
 
 *Audio:* **a file with several audio tracks starts with the English one** (language tag English/eng/en, or a track title such as "ENG 5.1"; otherwise the file's own default).
@@ -167,10 +165,24 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 | `Crawler:MaxRecursionDepth` | 6 | for `RecursiveDiscovery` / `ManualFull` |
 | `Crawler:FailureBackoffMinutes` | 60 | wait after a failed scan |
 | `Crawler:PreferFolderPoster` | true | folder poster before TMDB poster |
-| `Media:FfprobePath` / `FfmpegPath` | `ffprobe` / empty | tools; empty ffmpeg = auto-detect (next to ffprobe, then PATH) |
+| `Media:FfprobePath` / `FfmpegPath` | empty / empty | leave empty to use the project's tools folder, then PATH. A value is used exclusively (no fallback) |
+| `Media:ToolsDirectory` | `tools` | folder (relative to the project) that holds ffmpeg and ffprobe |
+| `Media:FfmpegDownloadUrl` | gyan.dev release-essentials zip | what the admin "Download FFmpeg" button fetches (https only) |
 | `Media:ProbeTimeoutSeconds`, `MaxConcurrentProbes`, `MaxRemuxSessions` | 90, 2, 2 | limits |
 | `Admin:Username`, `PasswordHash`, `Password`, `SessionHours` | admin, –, –, 8 | admin login |
 | `Seed:Sources[]` | the two ISP servers | sources created on first start (name, category slug, URL, strategy, cooldown, include/exclude) |
+
+## FFmpeg inside the project
+
+ffmpeg and ffprobe are looked up in this order, and both are looked up the same way, so they can no longer end up in different places:
+
+1. `Media:FfmpegPath` / `Media:FfprobePath`, only if you set them (leave them empty)
+2. the project's **`tools`** folder (`MovieHub\tools`)
+3. PATH, then the usual install folders (winget, Chocolatey, Scoop, Homebrew)
+
+To set up: start the site, sign in, open **Admin > Dashboard** and press **Download FFmpeg into the project** (Windows). Or copy `ffmpeg.exe` and
+`ffprobe.exe` into `MovieHub\tools` yourself and press **Check again** (no restart needed). To move to a new computer, copy the whole project folder;
+the tools go with it. The binaries are git-ignored, so they are not committed.
 
 ## 5. Deployment notes
 - Put it behind a reverse proxy with HTTPS if exposed beyond your LAN. The streaming proxy is not rate-limited.

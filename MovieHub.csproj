@@ -18,4 +18,10 @@
     </PackageReference>
   </ItemGroup>
 
+  <!-- The project's own ffmpeg/ffprobe live in .\tools; carry them into the publish output (dotnet run uses the project folder directly) so the project folder is self-contained. -->
+  <ItemGroup>
+    <None Include="tools\**\*" Exclude="tools\README.txt" CopyToPublishDirectory="PreserveNewest" LinkBase="tools" />
+    <None Include="tools\README.txt" CopyToPublishDirectory="PreserveNewest" LinkBase="tools" />
+  </ItemGroup>
+
 </Project>

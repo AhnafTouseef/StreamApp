@@ -44,9 +44,17 @@ public sealed class CrawlerOptions
 public sealed class MediaOptions
 {
     public const string Section = "Media";
-    public string FfprobePath { get; set; } = "ffprobe";
-    /// <summary>Optional. Enables server-side audio-track switching (remux with ffmpeg). Empty = disabled.</summary>
+    /// <summary>
+    /// Leave empty (recommended): ffprobe/ffmpeg are looked up in the project's own tools folder first, then on PATH, so the project
+    /// can be copied to another computer as one folder. A value here is used exclusively (no fallback) and may be a full path.
+    /// </summary>
+    public string FfprobePath { get; set; } = "";
+    /// <summary>Same rule as <see cref="FfprobePath"/>. ffmpeg enables audio-track switching and MKV/HEVC/AC3 playback.</summary>
     public string FfmpegPath { get; set; } = "";
+    /// <summary>Folder (relative to the project folder) that holds ffmpeg and ffprobe.</summary>
+    public string ToolsDirectory { get; set; } = "tools";
+    /// <summary>Where the admin "Download FFmpeg" button fetches a Windows build from (a zip that contains ffmpeg.exe and ffprobe.exe).</summary>
+    public string FfmpegDownloadUrl { get; set; } = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
     public int ProbeTimeoutSeconds { get; set; } = 90;
     public int MaxConcurrentProbes { get; set; } = 2;
     public int MaxFilesProbedPerMovie { get; set; } = 6;

@@ -32,6 +32,7 @@ public static class MediaEndpoints
         g.MapGet("/remux/{fileId:int}", RemuxAsync);
         g.MapGet("/subtitle/{id:int}", SubtitleAsync);
         g.MapGet("/probe/{fileId:int}", ProbeAsync).RequireAuthorization();
+        g.MapPost("/inspect/{fileId:int}", InspectAsync);
     }
 
     // ------------------------------------------------------------------ pass-through proxy with ranges
@@ -197,6 +198,25 @@ public static class MediaEndpoints
             log.LogWarning("Subtitle {Url} unavailable: {Message}", sub.Url, ex.Message);
             return Results.StatusCode(502);
         }
+    }
+
+    // ------------------------------------------------------------------ on-demand inspection
+
+    /// <summary>
+    /// The player calls this when a file has no usable stream information (ffprobe failed or never ran at scan time), so audio tracks appear
+    /// without an admin having to re-scan. Idempotent and throttled per file; the custom header keeps it from being triggered by a foreign page.
+    /// </summary>
+    private static async Task<IResult> InspectAsync(int fileId, HttpContext ctx, InspectionBackfill backfill)
+    {
+        if (!ctx.Request.Headers.ContainsKey("X-Requested-With")) return Results.BadRequest("Missing header.");
+        var snap = await backfill.InspectOneAsync(fileId, ctx.RequestAborted);
+        if (snap == null) return Results.NotFound();
+        return Results.Json(new
+        {
+            inspected = snap.Inspected, inspectionError = snap.Error, duration = snap.Duration, videoCodec = snap.VideoCodec, audioCodec = snap.AudioCodec,
+            audio = snap.Audio.Select(a => new { index = a.Index, lang = a.Lang, title = a.Title, codec = a.Codec, channels = a.Channels, isDefault = a.IsDefault }),
+            embeddedSubtitles = snap.EmbeddedSubtitles, preferredAudio = snap.PreferredAudio, defaultAudio = snap.DefaultAudio
+        });
     }
 
     // ------------------------------------------------------------------ admin probe

@@ -100,6 +100,7 @@
   }
 
   function onError() {
+    if (lazyRemux) return;   // the source was removed on purpose while waiting for Play
     clearTimeout(loadTimer);
     var at = position();
 
@@ -603,10 +604,12 @@
   function detectNativeAudio() { nativeAudio = !!(video.audioTracks && video.audioTracks.length > 1); }
 
   function label(a, i) {
-    var parts = [a.lang || a.title || ('Track ' + (i + 1))];
-    if (a.title && a.lang && a.title.toLowerCase().indexOf(a.lang.toLowerCase()) < 0) parts.push(a.title);
+    // MKV titles often carry the useful detail ("English DD 5.1"); use the title alone when it already names the language.
+    var lang = a.lang || '', title = a.title || '';
+    var base = title && lang && title.toLowerCase().indexOf(lang.toLowerCase()) >= 0 ? title : [lang, title].filter(Boolean).join(' · ');
+    var parts = [base || ('Track ' + (i + 1))];
     if (a.codec) parts.push(a.codec.toUpperCase());
-    if (a.channels) parts.push(a.channels === 6 ? '5.1' : a.channels === 8 ? '7.1' : a.channels === 2 ? 'stereo' : a.channels + 'ch');
+    if (a.channels && a.channels > 1) parts.push(a.channels === 6 ? '5.1' : a.channels === 8 ? '7.1' : a.channels === 2 ? 'stereo' : a.channels + 'ch');
     return parts.join(' · ');
   }
   function currentAudioIndex() {
@@ -651,13 +654,15 @@
     }
 
     if (!many) {
-      if (audioTracks.length === 1) {
+      if (inspecting) {
+        note(m, 'Reading the audio tracks from the file…');
+      } else if (audioTracks.length === 1) {
         var only = document.createElement('div'); only.className = 'note'; only.textContent = '• ' + label(audioTracks[0], 0); m.appendChild(only);
         note(m, 'This file has only one audio track, so there is nothing to switch to. A different file of this movie (see the file list under the player) may have other languages.');
       } else if (!cfg.inspected) {
-        note(m, 'The audio tracks of this file are unknown because the server could not inspect it' +
-          (cfg.inspectionError ? ' (' + cfg.inspectionError + ')' : ' yet') +
-          '. Make sure FFprobe is installed and reachable, then in the admin panel open the movie and press Re-inspect.');
+        note(m, 'The audio tracks of this file are unknown because the server could not read them' +
+          (cfg.inspectionError ? ': ' + cfg.inspectionError : '') +
+          '. An administrator can check Dashboard → Media tools (FFprobe must be found), then reopen this page.');
       } else {
         note(m, 'No audio information is available for this file.');
       }
@@ -730,6 +735,40 @@
     if (handled) e.preventDefault();
   });
 
+  // ------------------------------------------------------------ files without stream information
+  // A failed or missing ffprobe run at scan time leaves a file without tracks. Ask the server to inspect it now so the audio list appears.
+  var inspecting = false;
+  function startLazyEnglish() {
+    clearTimeout(loadTimer);
+    lazyRemux = true; mode = 'remux'; offset = 0;
+    video.pause(); video.removeAttribute('src'); video.load();
+    audioIndex = cfg.preferredAudio; prevMode = 'direct'; triedModes.remux = true;
+    player.classList.remove('is-loading');
+    setStatus('Ready. Starts with the English audio track (compatibility mode converts the stream when you press play).');
+    updateTime();
+  }
+  function inspectNow() {
+    inspecting = true; renderAudioMenu();
+    fetch('/media/inspect/' + cfg.fileId, { method: 'POST', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) {
+        inspecting = false;
+        cfg.inspected = d.inspected; cfg.inspectionError = d.inspectionError;
+        cfg.preferredAudio = d.preferredAudio; cfg.defaultAudio = d.defaultAudio; cfg.embeddedSubtitles = d.embeddedSubtitles;
+        cfg.audio = audioTracks = d.audio || [];
+        if (d.videoCodec) cfg.videoCodec = d.videoCodec;
+        if (d.audioCodec) cfg.audioCodec = d.audioCodec;
+        if (!knownDuration && d.duration) { knownDuration = d.duration; updateTime(); }
+        renderAudioMenu(); renderSubMenu();
+        var needEnglish = audioTracks.length > 1 && cfg.preferredAudio != null && cfg.preferredAudio !== cfg.defaultAudio;
+        if (!needEnglish) return;
+        if (cfg.remuxEnabled && mode === 'direct' && video.paused && position() < 0.5 && !lazyRemux) startLazyEnglish();
+        else if (currentAudioIndex() !== cfg.preferredAudio) toast('English audio found. Use the 🎧 menu to switch to it.');
+        renderAudioMenu();
+      })
+      .catch(function () { inspecting = false; renderAudioMenu(); });
+  }
+
   // ------------------------------------------------------------ start
   var needEnglishSwitch = audioTracks.length > 1 && cfg.preferredAudio != null && cfg.preferredAudio !== cfg.defaultAudio;
   if (needEnglishSwitch && cfg.remuxEnabled && cfg.directUrl) {
@@ -746,4 +785,5 @@
   } else {
     load('direct', 0, false);
   }
+  if (!cfg.inspected) inspectNow();
 })();

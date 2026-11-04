@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using MovieHub.Data;
+using MovieHub.Infrastructure.Media;
 using MovieHub.Models;
 using MovieHub.Services;
 
@@ -14,13 +16,27 @@ public class IndexModel : AdminPageModel
 {
     private readonly AppDbContext _db;
     private readonly ScanCoordinator _scans;
-    public IndexModel(AppDbContext db, ScanCoordinator scans) { _db = db; _scans = scans; }
+    private readonly FfprobeRunner _ffprobe;
+    private readonly FfmpegTool _ffmpeg;
+    private readonly InspectionBackfill _backfill;
+    private readonly FfmpegInstaller _installer;
+    public IndexModel(AppDbContext db, ScanCoordinator scans, FfprobeRunner ffprobe, FfmpegTool ffmpeg, InspectionBackfill backfill, FfmpegInstaller installer)
+    { _db = db; _scans = scans; _ffprobe = ffprobe; _ffmpeg = ffmpeg; _backfill = backfill; _installer = installer; }
+
+    public FfmpegInstaller Installer => _installer;
+
+    public bool FfprobeOk => _ffprobe.IsAvailable;
+    public string FfprobeInfo => _ffprobe.IsAvailable ? $"{_ffprobe.Command} — {_ffprobe.Version}" : "not found";
+    public bool FfmpegOk => _ffmpeg.IsAvailable;
+    public string FfmpegInfo => _ffmpeg.IsAvailable ? $"{_ffmpeg.Path} — {_ffmpeg.Version}" : "not found";
+    public int PendingInspections { get; private set; }
+    public InspectionBackfill Backfill => _backfill;
 
     public int TotalMovies { get; private set; }
     public int TotalCategories { get; private set; }
     public int TotalSources { get; private set; }
     public DateTime? LastSuccess { get; private set; }
-    public bool AnyRunning => _scans.Running.Count > 0;
+    public bool AnyRunning => _scans.Running.Count > 0 || _backfill.IsRunning || _installer.IsRunning;
     public List<RecentMovie> Recent { get; private set; } = new();
     public List<ScanRow> History { get; private set; } = new();
     public List<ScanRow> Failures { get; private set; } = new();
@@ -35,6 +51,7 @@ public class IndexModel : AdminPageModel
         TotalMovies = await _db.Movies.CountAsync(ct);
         TotalCategories = await _db.Categories.CountAsync(ct);
         TotalSources = await _db.Sources.CountAsync(ct);
+        PendingInspections = await InspectionBackfill.Pending(_db.MediaFiles).CountAsync(ct);
         LastSuccess = await _db.Sources.MaxAsync(s => s.LastSuccessfulScan, ct);
         Recent = await _db.Movies.AsNoTracking().OrderByDescending(m => m.CreatedAt).Take(10)
             .Select(m => new RecentMovie(m.Id, m.Title, m.ReleaseYear, m.Source.Name, m.MatchStatus, m.CreatedAt)).ToListAsync(ct);
@@ -42,5 +59,30 @@ public class IndexModel : AdminPageModel
         Failures = await Project(_db.ScanHistories.AsNoTracking()
             .Where(h => h.Status == ScanRunStatus.Failed || h.Status == ScanRunStatus.Interrupted || h.Status == ScanRunStatus.Partial)
             .OrderByDescending(h => h.StartedAt).Take(10)).ToListAsync(ct);
+    }
+
+    public IActionResult OnPostInspectPending()
+    {
+        if (!_ffprobe.IsAvailable) Fail("FFprobe was not found, so nothing can be inspected. Use \"Download FFmpeg\" above or copy ffprobe into the tools folder.");
+        else if (_backfill.TryStartAll()) Ok("Inspecting all files that have no stream information. This page refreshes while it runs.");
+        else Fail("An inspection pass is already running.");
+        return RedirectToPage();
+    }
+
+    public IActionResult OnPostDownloadFfmpeg()
+    {
+        if (!_installer.CanInstall) Fail("Automatic download is only set up for Windows. Copy ffmpeg and ffprobe into the tools folder instead.");
+        else if (_installer.TryStart()) Ok("Downloading FFmpeg into the tools folder. This page refreshes while it runs.");
+        else Fail("A download is already running.");
+        return RedirectToPage();
+    }
+
+    public IActionResult OnPostRecheckTools()
+    {
+        _ffmpeg.Reset();
+        _ffprobe.Reset();
+        if (_ffmpeg.IsAvailable && _ffprobe.IsAvailable) Ok("Both tools found.");
+        else Fail("Still missing: " + string.Join(" and ", new[] { _ffprobe.IsAvailable ? null : "ffprobe", _ffmpeg.IsAvailable ? null : "ffmpeg" }.Where(x => x != null)) + ".");
+        return RedirectToPage();
     }
 }

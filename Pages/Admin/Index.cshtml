@@ -10,6 +10,44 @@
 </div>
 @if (Model.AnyRunning) { <p class="notice is-live">A scan is running. This page refreshes automatically.</p> }
 
+<h2>Media tools</h2>
+<div class="table-wrap"><table class="data">
+    <tbody>
+        <tr><td><strong>FFprobe</strong><br /><span class="muted">reads audio tracks, codecs, duration</span></td>
+            <td><span class="status @(Model.FfprobeOk ? "Succeeded" : "Failed")">@(Model.FfprobeOk ? "Found" : "Missing")</span> <span class="mono muted">@Model.FfprobeInfo</span></td></tr>
+        <tr><td><strong>FFmpeg</strong><br /><span class="muted">audio switching, MKV/HEVC/AC3 playback</span></td>
+            <td><span class="status @(Model.FfmpegOk ? "Succeeded" : "Failed")">@(Model.FfmpegOk ? "Found" : "Missing")</span> <span class="mono muted">@Model.FfmpegInfo</span></td></tr>
+        <tr><td><strong>Files without stream info</strong><br /><span class="muted">no audio list in the player until inspected</span></td>
+            <td>
+                @if (Model.Backfill.IsRunning) { <span class="status Running">Inspecting @Model.Backfill.Done / @Model.Backfill.Total</span> @if (Model.Backfill.Failed > 0) { <span class="muted"> · @Model.Backfill.Failed failed</span> } }
+                else
+                {
+                    <strong>@Model.PendingInspections.ToString("N0")</strong>
+                    <form method="post" asp-page-handler="InspectPending" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(Model.PendingInspections == 0 || !Model.FfprobeOk)">Inspect them now</button></form>
+                }
+            </td></tr>
+    </tbody>
+</table></div>
+@if (Model.Installer.IsRunning)
+{
+    <p class="notice">FFmpeg download: <strong>@Model.Installer.Status</strong></p>
+}
+else if (!string.IsNullOrEmpty(Model.Installer.LastError))
+{
+    <p class="notice notice-error">FFmpeg download failed: @Model.Installer.LastError</p>
+}
+@if (!Model.FfprobeOk || !Model.FfmpegOk)
+{
+    <div class="notice">
+        <p style="margin-top:0">FFmpeg is kept <strong>inside the project</strong> so the whole folder can be moved to another computer: <code>@Model.Installer.TargetDirectory</code></p>
+        <form method="post" asp-page-handler="DownloadFfmpeg" class="inline">
+            <button class="btn btn-primary btn-sm" type="submit" disabled="@(!Model.Installer.CanInstall || Model.Installer.IsRunning)">Download FFmpeg into the project</button>
+        </form>
+        <form method="post" asp-page-handler="RecheckTools" class="inline"><button class="btn btn-sm" type="submit">Check again</button></form>
+        <p class="muted" style="margin-bottom:0">Or copy <code>ffmpeg</code> and <code>ffprobe</code> into that folder yourself, then press “Check again” (no restart needed).</p>
+    </div>
+}
+
 <h2>Recently discovered movies</h2>
 <div class="table-wrap"><table class="data">
     <thead><tr><th>Title</th><th>Year</th><th>Source</th><th>Match</th><th>Added (UTC)</th></tr></thead>

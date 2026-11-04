@@ -8,3 +8,7 @@ obj/
 *.user
 appsettings.Production.json
 secrets.json
+
+# FFmpeg binaries live in tools/ but are not committed
+tools/*
+!tools/README.txt

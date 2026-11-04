@@ -367,3 +367,4 @@ details.panel summary { cursor: pointer; font-weight: 600; }
 .row-dots span.is-on { background: var(--accent); width: 28px; }
 
 .ctrl-btn.is-dim { opacity: .55; }
+.notice.notice-error { border-color: var(--bad, #e5484d); color: var(--text, inherit); }

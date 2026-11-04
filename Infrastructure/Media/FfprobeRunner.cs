@@ -24,15 +24,44 @@ public sealed class FfprobeRunner
     private readonly MediaOptions _opt;
     private readonly ILogger<FfprobeRunner> _log;
 
-    public FfprobeRunner(IOptions<MediaOptions> opt, ILogger<FfprobeRunner> log)
+    private readonly ToolDirectories _dirs;
+
+    public FfprobeRunner(IOptions<MediaOptions> opt, ILogger<FfprobeRunner> log, ToolDirectories? dirs = null)
     {
         _opt = opt.Value;
         _log = log;
+        _dirs = dirs ?? ToolDirectories.Default();
+    }
+
+    private readonly object _gate = new();
+    private bool _detected;
+    private ToolInfo? _info;
+
+    /// <summary>The runnable ffprobe command: Media:FfprobePath, PATH, or one of the usual install folders.</summary>
+    public string Command { get { Detect(); return _info?.Command ?? (string.IsNullOrWhiteSpace(_opt.FfprobePath) ? "ffprobe" : _opt.FfprobePath); } }
+    public string? Version { get { Detect(); return _info?.Version; } }
+    public bool IsAvailable { get { Detect(); return _info != null; } }
+
+    /// <summary>Forget the cached result and look again (used after the downloader installs the tools).</summary>
+    public void Reset() { lock (_gate) { _detected = false; _info = null; } Detect(); }
+
+    public void Detect()
+    {
+        if (_detected) return;
+        lock (_gate)
+        {
+            if (_detected) return;
+            _info = ToolLocator.Find("ffprobe", _opt.FfprobePath, _dirs, new[] { _opt.FfmpegPath });
+            if (_info != null) _log.LogInformation("ffprobe found ({Path}).", _info.Command);
+            else if (!string.IsNullOrWhiteSpace(_opt.FfprobePath)) _log.LogWarning("Media:FfprobePath '{Path}' could not be run.", _opt.FfprobePath);
+            else _log.LogWarning("ffprobe was not found in {Dir} or on PATH. Movies cannot be inspected: no audio tracks, codecs or durations. Use Admin > Dashboard > Download FFmpeg, or copy ffprobe into that folder.", _dirs.Primary);
+            _detected = true;
+        }
     }
 
     public async Task<ProbeResult> ProbeAsync(string url, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo(_opt.FfprobePath)
+        var psi = new ProcessStartInfo(Command)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -53,7 +82,7 @@ public sealed class FfprobeRunner
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            return ProbeResult.Fail($"ffprobe could not be started from '{_opt.FfprobePath}': {ex.Message}");
+            return ProbeResult.Fail($"ffprobe could not be started ('{Command}'): {ex.Message}. Use Admin > Dashboard > Download FFmpeg, or put ffprobe in the project's tools folder.");
         }
 
         var stdout = proc.StandardOutput.ReadToEndAsync();
