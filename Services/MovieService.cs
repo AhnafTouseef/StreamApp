@@ -33,7 +33,7 @@ public sealed class MovieService
         Overview = m.Overview,
         CategoryName = m.Category.Name,
         Quality = m.Quality,
-        Genres = m.MovieGenres.Select(g => g.Genre.Name).Take(3).ToList()
+        Genres = m.MovieGenres.Select(g => g.Genre.Name).ToList() // capped to 3 by MovieCardDto.Genres; Take() here would need APPLY (unsupported on SQLite)
     };
 
     /// <summary>Movies whose category is active. Movies of disabled sources stay visible: an offline ISP must not empty the catalog.</summary>

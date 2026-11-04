@@ -11,7 +11,16 @@ public sealed class MovieCardDto
     public string? Overview { get; set; }
     public string? CategoryName { get; set; }
     public string? Quality { get; set; }
-    public List<string> Genres { get; set; } = new();
+    private List<string> _genres = new();
+    /// <summary>
+    /// At most three genre names for the card chips. The cap is applied here, after the rows are materialised:
+    /// a .Take(3) inside the EF projection becomes a correlated sub-select (APPLY), which SQLite cannot execute.
+    /// </summary>
+    public List<string> Genres
+    {
+        get => _genres;
+        set => _genres = value is { Count: > 3 } ? value.GetRange(0, 3) : value;
+    }
 }
 
 public sealed class MovieRowModel
