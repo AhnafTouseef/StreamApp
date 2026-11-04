@@ -101,21 +101,26 @@ public static class MediaEndpoints
     // ------------------------------------------------------------------ ffmpeg remux (optional)
 
     private static async Task<IResult> RemuxAsync(
-        int fileId, HttpContext ctx, IMediaLookup lookup, IOptions<MediaOptions> mediaOpt,
+        int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
         SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0)
     {
-        var opt = mediaOpt.Value;
-        if (!opt.RemuxEnabled)
-            return Results.Problem("Server-side audio switching is disabled. Set Media:FfmpegPath to enable it.", statusCode: 501);
+        if (!ffmpeg.IsAvailable)
+            return Results.Problem("Server-side audio switching is unavailable: ffmpeg was not found. Install FFmpeg or set Media:FfmpegPath.", statusCode: 501);
 
         var file = await lookup.GetFileAsync(fileId, ctx.RequestAborted);
         if (file == null) return Results.NotFound();
         if (!policy.IsAllowed(file.Url)) return Results.StatusCode(403);
         if (t < 0 || double.IsNaN(t) || double.IsInfinity(t)) return Results.BadRequest("Invalid start time.");
 
-        var audioStream = audio.HasValue
-            ? file.Streams.FirstOrDefault(s => s.Kind == StreamKind.Audio && s.Index == audio.Value)
-            : file.Streams.Where(s => s.Kind == StreamKind.Audio).OrderByDescending(s => s.IsDefault).FirstOrDefault();
+        var audioTracks = file.Streams.Where(s => s.Kind == StreamKind.Audio).OrderBy(s => s.Index).ToList();
+        StreamRow? audioStream;
+        if (audio.HasValue) audioStream = audioTracks.FirstOrDefault(s => s.Index == audio.Value);
+        else
+        {
+            // No explicit choice: start with English when the file has an English track, otherwise the file's default.
+            var pick = AudioPreference.Choose(audioTracks, s => s.Language, s => s.Title, s => s.IsDefault);
+            audioStream = pick >= 0 ? audioTracks[pick] : null;
+        }
         var videoStream = file.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
         if (audio.HasValue && audioStream == null) return Results.BadRequest("Unknown audio stream.");
 
@@ -126,7 +131,7 @@ public static class MediaEndpoints
         try
         {
             var copyVideo = videoStream?.Codec is "h264" or "avc1";
-            var psi = new ProcessStartInfo(opt.FfmpegPath)
+            var psi = new ProcessStartInfo(ffmpeg.Path!)
             {
                 RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
             };

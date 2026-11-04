@@ -47,6 +47,7 @@ public sealed class MovieService
         if (home.TotalMovies == 0) return home;
 
         var recentYear = DateTime.UtcNow.Year - 2;
+        var hasPopularity = await Visible().AnyAsync(m => m.Popularity != null, ct);
 
         home.Featured = await Visible()
             .Where(m => m.BackdropUrl != null)
@@ -54,35 +55,90 @@ public sealed class MovieService
             .Take(6).Select(ToCard).ToListAsync(ct);
         if (home.Featured.Count == 0)
             home.Featured = await Visible().Where(m => m.PosterUrl != null)
-                .OrderByDescending(m => m.CreatedAt).Take(5).Select(ToCard).ToListAsync(ct);
-
-        var trending = await Visible().Where(m => m.Popularity != null && m.ReleaseYear >= recentYear)
-            .OrderByDescending(m => m.Popularity).Take(20).Select(ToCard).ToListAsync(ct);
-        if (trending.Count < 5)
-            trending = await Visible().Where(m => m.Popularity != null)
-                .OrderByDescending(m => m.Popularity).Take(20).Select(ToCard).ToListAsync(ct);
-
-        var recent = await Visible().OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
-            .Take(20).Select(ToCard).ToListAsync(ct);
-        var popular = await Visible().Where(m => m.TmdbVoteCount != null)
-            .OrderByDescending(m => m.TmdbVoteCount).Take(20).Select(ToCard).ToListAsync(ct);
-        var top = await Visible().Where(m => m.TmdbRating != null && m.TmdbVoteCount >= 100)
-            .OrderByDescending(m => m.TmdbRating).Take(20).Select(ToCard).ToListAsync(ct);
-        var recommended = await Visible().Where(m => m.TmdbRating >= 7.0)
-            .OrderBy(m => EF.Functions.Random()).Take(20).Select(ToCard).ToListAsync(ct);
+                .OrderByDescending(m => m.Popularity).ThenByDescending(m => m.ReleaseYear).ThenByDescending(m => m.Id)
+                .Take(5).Select(ToCard).ToListAsync(ct);
 
         void AddRow(string id, string title, List<MovieCardDto> items)
         {
             if (items.Count > 0) home.Rows.Add(new MovieRowModel { Id = id, Title = title, Items = items });
         }
-        AddRow("trending", "Trending Movies", trending);
-        AddRow("recent", "Recently Added", recent);
-        AddRow("popular", "Popular Movies", popular);
-        AddRow("top", "Top Rated", top);
-        AddRow("recommended", "Recommended Movies", recommended);
+
+        if (hasPopularity)
+        {
+            // Trending = what is popular right now among recent releases; if too few recent ones have data, widen to all years.
+            var trending = await Visible().Where(m => m.Popularity != null && m.ReleaseYear >= recentYear)
+                .OrderByDescending(m => m.Popularity).Take(20).Select(ToCard).ToListAsync(ct);
+            if (trending.Count < 5)
+                trending = await Visible().Where(m => m.Popularity != null)
+                    .OrderByDescending(m => m.Popularity).Take(20).Select(ToCard).ToListAsync(ct);
+            var popular = await Visible().Where(m => m.TmdbVoteCount != null)
+                .OrderByDescending(m => m.TmdbVoteCount).Take(20).Select(ToCard).ToListAsync(ct);
+            var top = await Visible().Where(m => m.TmdbRating != null && m.TmdbVoteCount >= 100)
+                .OrderByDescending(m => m.TmdbRating).Take(20).Select(ToCard).ToListAsync(ct);
+            var recommended = await Visible().Where(m => m.TmdbRating >= 7.0)
+                .OrderBy(m => EF.Functions.Random()).Take(20).Select(ToCard).ToListAsync(ct);
+
+            AddRow("trending", "Trending Now", trending);
+            AddRow("popular", "Popular Movies", popular);
+            AddRow("top", "Top Rated", top);
+            AddRow("recommended", "Recommended for You", recommended);
+        }
+        else
+        {
+            // No TMDB data yet (no API key, or matching has not run): popularity is unknown, so show the newest releases instead of an empty page.
+            var fresh = await Visible().OrderByDescending(m => m.ReleaseYear).ThenByDescending(m => m.Id)
+                .Take(20).Select(ToCard).ToListAsync(ct);
+            AddRow("new-releases", "New Releases", fresh);
+        }
+
+        home.CategoryRows = await GetCategorySlidersAsync(recentYear, ct);
 
         home.Genres = (await GetGenresAsync(ct)).Take(24).ToList();
         return home;
+    }
+
+    /// <summary>
+    /// One slider per active top-level category (sub-categories included): the most popular movies of the last few years,
+    /// topped up with older popular ones when a category has few recent titles. Without popularity data the newest releases are shown.
+    /// </summary>
+    private async Task<List<MovieRowModel>> GetCategorySlidersAsync(int recentYear, CancellationToken ct)
+    {
+        var rows = new List<MovieRowModel>();
+        var categories = await _db.Categories.AsNoTracking().Where(c => c.IsActive).OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name).ToListAsync(ct);
+        var byParent = categories.Where(c => c.ParentCategoryId != null).GroupBy(c => c.ParentCategoryId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var top in categories.Where(c => c.ParentCategoryId == null))
+        {
+            var ids = new List<int> { top.Id };
+            for (var i = 0; i < ids.Count; i++)
+                if (byParent.TryGetValue(ids[i], out var kids)) ids.AddRange(kids.Select(k => k.Id).Where(k => !ids.Contains(k)));
+
+            var scope = Visible().Where(m => ids.Contains(m.CategoryId));
+            var popularityKnown = await scope.AnyAsync(m => m.Popularity != null, ct);
+
+            var recent = await scope.Where(m => m.ReleaseYear >= recentYear - 1)
+                .OrderByDescending(m => m.Popularity).ThenByDescending(m => m.ReleaseYear).ThenByDescending(m => m.Id)
+                .Take(20).Select(ToCard).ToListAsync(ct);
+
+            if (recent.Count < 10)
+            {
+                var have = recent.Select(r => r.Id).ToList();
+                var more = await scope.Where(m => !have.Contains(m.Id))
+                    .OrderByDescending(m => m.Popularity).ThenByDescending(m => m.ReleaseYear).ThenByDescending(m => m.Id)
+                    .Take(20 - recent.Count).Select(ToCard).ToListAsync(ct);
+                recent.AddRange(more);
+            }
+            if (recent.Count == 0) continue;
+
+            rows.Add(new MovieRowModel
+            {
+                Id = "cat-" + top.Slug,
+                Title = popularityKnown ? $"Popular in {top.Name}" : $"New in {top.Name}",
+                Items = recent,
+                LinkUrl = $"/movies/{top.Slug}" + (popularityKnown ? "?sort=popular" : "?sort=year")
+            });
+        }
+        return rows;
     }
 
     // ------------------------------------------------------------------ browsing / search
@@ -126,6 +182,7 @@ public sealed class MovieService
 
         IOrderedQueryable<Movie> ordered = (r.Sort ?? "recent").ToLowerInvariant() switch
         {
+            "popular" => q.OrderByDescending(m => m.Popularity).ThenByDescending(m => m.ReleaseYear).ThenBy(m => EF.Functions.Collate(m.Title, "NOCASE")),
             "year" => q.OrderByDescending(m => m.ReleaseYear).ThenBy(m => EF.Functions.Collate(m.Title, "NOCASE")),
             "rating" => q.OrderByDescending(m => m.TmdbRating).ThenBy(m => EF.Functions.Collate(m.Title, "NOCASE")),
             "alpha" => q.OrderBy(m => EF.Functions.Collate(m.Title, "NOCASE")).ThenBy(m => m.ReleaseYear),

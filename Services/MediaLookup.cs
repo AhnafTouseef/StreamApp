@@ -4,7 +4,7 @@ using MovieHub.Models;
 
 namespace MovieHub.Services;
 
-public sealed record StreamRow(int Index, StreamKind Kind, string? Codec, bool IsDefault);
+public sealed record StreamRow(int Index, StreamKind Kind, string? Codec, bool IsDefault, string? Language = null, string? Title = null);
 public sealed record MediaFileInfo(int Id, string Url, IReadOnlyList<StreamRow> Streams);
 public sealed record SubtitleInfo(int Id, string Url, string Format);
 
@@ -25,7 +25,7 @@ public sealed class EfMediaLookup : IMediaLookup
         await using var db = await _factory.CreateDbContextAsync(ct);
         var file = await db.MediaFiles.AsNoTracking().Include(f => f.Streams).FirstOrDefaultAsync(f => f.Id == fileId, ct);
         return file == null ? null
-            : new MediaFileInfo(file.Id, file.FileUrl, file.Streams.Select(s => new StreamRow(s.StreamIndex, s.StreamType, s.Codec, s.IsDefault)).ToList());
+            : new MediaFileInfo(file.Id, file.FileUrl, file.Streams.Select(s => new StreamRow(s.StreamIndex, s.StreamType, s.Codec, s.IsDefault, s.Language, s.Title)).ToList());
     }
 
     public async Task<SubtitleInfo?> GetSubtitleAsync(int subtitleId, CancellationToken ct)

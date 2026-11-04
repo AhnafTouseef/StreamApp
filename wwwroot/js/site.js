@@ -17,14 +17,62 @@
     });
   }
 
-  // ---- rows: arrow buttons scroll by roughly one screenful
+  // ---- rows / sliders: arrows (header and edge), page dots, mouse drag, snap scrolling
   document.querySelectorAll('.row').forEach(function (row) {
     var track = row.querySelector('.row-track');
-    row.querySelectorAll('.row-btn').forEach(function (btn) {
+    if (!track) return;
+    var dots = row.querySelector('.row-dots');
+    var arrows = row.querySelectorAll('.row-btn, .row-edge');
+
+    function page() { return Math.max(1, track.clientWidth * 0.9); }
+    arrows.forEach(function (btn) {
       btn.addEventListener('click', function () {
-        track.scrollBy({ left: Number(btn.dataset.dir) * track.clientWidth * 0.85, behavior: 'smooth' });
+        track.scrollBy({ left: Number(btn.dataset.dir) * page(), behavior: 'smooth' });
       });
     });
+
+    function pages() { return Math.max(1, Math.round(track.scrollWidth / track.clientWidth)); }
+    function sync() {
+      var max = track.scrollWidth - track.clientWidth;
+      var atStart = track.scrollLeft <= 2, atEnd = track.scrollLeft >= max - 2;
+      row.classList.toggle('at-start', atStart);
+      row.classList.toggle('at-end', atEnd || max <= 2);
+      arrows.forEach(function (b) {
+        var back = Number(b.dataset.dir) < 0;
+        b.disabled = back ? atStart : (atEnd || max <= 2);
+      });
+      if (!dots) return;
+      var n = pages();
+      if (dots.children.length !== n) {
+        dots.innerHTML = '';
+        if (n > 1 && n <= 12) for (var i = 0; i < n; i++) dots.appendChild(document.createElement('span'));
+      }
+      var cur = max <= 2 ? 0 : Math.round((track.scrollLeft / max) * (n - 1));
+      Array.prototype.forEach.call(dots.children, function (d, i) { d.classList.toggle('is-on', i === cur); });
+    }
+    track.addEventListener('scroll', function () { window.requestAnimationFrame(sync); }, { passive: true });
+    window.addEventListener('resize', sync);
+    sync();
+
+    // Mouse drag to slide (touch already scrolls natively). A drag never counts as a click on a card.
+    var down = false, startX = 0, startLeft = 0, moved = false;
+    track.addEventListener('pointerdown', function (e) {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      down = true; moved = false; startX = e.clientX; startLeft = track.scrollLeft;
+    });
+    window.addEventListener('pointermove', function (e) {
+      if (!down) return;
+      var dx = e.clientX - startX;
+      if (!moved && Math.abs(dx) > 6) { moved = true; track.classList.add('is-dragging'); }
+      if (moved) track.scrollLeft = startLeft - dx;
+    });
+    window.addEventListener('pointerup', function () {
+      if (!down) return;
+      down = false;
+      track.classList.remove('is-dragging');
+    });
+    track.addEventListener('click', function (e) { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);
+    track.addEventListener('dragstart', function (e) { e.preventDefault(); }); // poster images must not start a native image drag
   });
 
   // ---- "Watch" chip inside a card goes straight to the player without opening the details page

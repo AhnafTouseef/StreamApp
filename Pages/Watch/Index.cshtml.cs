@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
 using MovieHub.Configuration;
 using MovieHub.Infrastructure.Crawler;
+using MovieHub.Infrastructure.Media;
 using MovieHub.Models;
 using MovieHub.Services;
 
@@ -12,12 +13,12 @@ namespace MovieHub.Pages.Watch;
 public class IndexModel : PageModel
 {
     private readonly MovieService _movies;
-    private readonly MediaOptions _media;
+    private readonly FfmpegTool _ffmpeg;
     private readonly SourcePolicy _policy;
 
-    public IndexModel(MovieService movies, IOptions<MediaOptions> media, SourcePolicy policy)
+    public IndexModel(MovieService movies, FfmpegTool ffmpeg, SourcePolicy policy)
     {
-        _movies = movies; _media = media.Value; _policy = policy;
+        _movies = movies; _ffmpeg = ffmpeg; _policy = policy;
     }
 
     public Movie Movie { get; private set; } = null!;
@@ -40,6 +41,12 @@ public class IndexModel : PageModel
 
         var audio = Current.Streams.Where(s => s.StreamType == StreamKind.Audio).OrderBy(s => s.StreamIndex)
             .Select(s => new { index = s.StreamIndex, lang = s.Language, title = s.Title, codec = s.Codec, channels = s.Channels, isDefault = s.IsDefault }).ToList();
+        // Multi-audio files start with English when there is an English track; the player switches to it before playback if the file's own default differs.
+        var pick = AudioPreference.Choose(audio, a => a.lang, a => a.title, a => a.isDefault);
+        var fileDefault = audio.FindIndex(a => a.isDefault);
+        if (fileDefault < 0 && audio.Count > 0) fileDefault = 0;
+        int? preferredAudio = pick >= 0 ? audio[pick].index : null;
+        int? defaultAudio = fileDefault >= 0 ? audio[fileDefault].index : null;
         var embeddedSubs = Current.Streams.Count(s => s.StreamType == StreamKind.Subtitle);
         var subs = movie.Subtitles.OrderBy(s => s.Language).ThenBy(s => s.FileName)
             .Select(s => new
@@ -54,12 +61,16 @@ public class IndexModel : PageModel
             directUrl = direct,
             proxyUrl = $"/media/stream/{Current.Id}",
             remuxUrl = $"/media/remux/{Current.Id}",
-            remuxEnabled = _media.RemuxEnabled,
+            remuxEnabled = _ffmpeg.IsAvailable,
+            inspected = Current.InspectedAt != null,
+            inspectionError = Current.InspectionError,
             extension = Current.Extension,
             duration = Current.Duration,
             videoCodec = Current.VideoCodec,
             audioCodec = Current.AudioCodec,
             audio,
+            preferredAudio,
+            defaultAudio,
             subtitles = subs,
             embeddedSubtitles = embeddedSubs
         });

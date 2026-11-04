@@ -40,6 +40,7 @@
     </select>
     <select name="sort" aria-label="Sort by">
         <option value="recent" selected="@(Model.Sort == "recent")">Recently added</option>
+        <option value="popular" selected="@(Model.Sort == "popular")">Most popular</option>
         <option value="year" selected="@(Model.Sort == "year")">Release year</option>
         <option value="rating" selected="@(Model.Sort == "rating")">Rating</option>
         <option value="alpha" selected="@(Model.Sort == "alpha")">Alphabetical</option>

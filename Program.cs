@@ -65,6 +65,7 @@ services.AddSingleton<DirectoryListingClient>();
 services.AddSingleton<TmdbClient>();
 services.AddSingleton<OmdbClient>();
 services.AddSingleton<FfprobeRunner>();
+services.AddSingleton<FfmpegTool>();
 services.AddSingleton<MediaInspectionService>();
 services.AddSingleton<GenreResolver>();
 services.AddSingleton<MetadataService>();
@@ -98,6 +99,7 @@ services.AddRazorPages(o =>
 
 var app = builder.Build();
 
+app.Services.GetRequiredService<FfmpegTool>().Detect();
 await DbInitializer.InitializeAsync(app.Services);
 await app.Services.GetRequiredService<SourcePolicy>().RefreshAsync(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>(), CancellationToken.None);
 

@@ -53,6 +53,14 @@ else
         {
             <partial name="_MovieRow" model="row" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = true }' />
         }
+        @if (Model.Home.CategoryRows.Count > 0)
+        {
+            <h2 class="rows-divider">By category</h2>
+            @foreach (var row in Model.Home.CategoryRows)
+            {
+                <partial name="_MovieRow" model="row" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = true }' />
+            }
+        }
     </div>
 
     @if (Model.Home.Genres.Count > 0)

@@ -28,6 +28,9 @@ public sealed class MovieRowModel
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public IReadOnlyList<MovieCardDto> Items { get; set; } = Array.Empty<MovieCardDto>();
+    /// <summary>Optional "see all" link shown in the row header.</summary>
+    public string? LinkUrl { get; set; }
+    public string? Subtitle { get; set; }
 }
 
 public sealed class PagedResult<T>
@@ -68,6 +71,8 @@ public sealed class HomeDto
 {
     public List<MovieCardDto> Featured { get; set; } = new();
     public List<MovieRowModel> Rows { get; set; } = new();
+    /// <summary>One slider per top-level category with its recent popular movies.</summary>
+    public List<MovieRowModel> CategoryRows { get; set; } = new();
     public List<GenreFacet> Genres { get; set; } = new();
     public int TotalMovies { get; set; }
 }

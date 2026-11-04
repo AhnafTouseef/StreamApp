@@ -20,7 +20,7 @@ Movie files are **never downloaded** — the browser plays them straight from th
 | .NET 8 SDK | <https://dotnet.microsoft.com/download/dotnet/8.0> |
 | TMDB API key | free at <https://www.themoviedb.org/settings/api> (v3 key or v4 read-access token) |
 | FFprobe | part of FFmpeg (`apt install ffmpeg`, `brew install ffmpeg`, or <https://ffmpeg.org>) — needed for audio/subtitle/resolution info |
-| FFmpeg (optional) | only for server-side audio-track switching / unsupported containers (see [Player](#player)) |
+| FFmpeg | installed together with FFprobe (the winget/apt/brew packages include both). MovieHub finds it automatically; it is what makes audio-track switching and English-first start work in Chrome/Edge/Firefox, and it plays MKV/HEVC/AC3 files (see [Player](#player)) |
 | Network | the machine running MovieHub must reach the ISP servers; viewers' browsers must too for direct playback |
 
 ## 2. Setup
@@ -40,7 +40,7 @@ dotnet user-secrets set "Admin:PasswordHash" "<output of the previous command>"
 
 # 3. (optional) FFprobe / FFmpeg locations if they are not on PATH
 dotnet user-secrets set "Media:FfprobePath" "/usr/bin/ffprobe"
-dotnet user-secrets set "Media:FfmpegPath"  "/usr/bin/ffmpeg"     # enables audio switching, see Player
+# dotnet user-secrets set "Media:FfmpegPath" "C:\\ffmpeg\\bin\\ffmpeg.exe"   # only if ffmpeg is not found automatically
 
 # 4. Run
 dotnet run
@@ -125,13 +125,27 @@ preferred over TMDB posters (`Crawler:PreferFolderPoster`). IMDb ratings come fr
 `/watch/{id}` uses a custom player. Fallback chain:
 1. play the ISP URL directly (best: no load on this server);
 2. `/media/stream/{id}` — pass-through proxy with full `Range` support, streamed in 80 KB chunks, never buffered;
-3. `/media/remux/{id}` — ffmpeg fragmented-MP4 pipe (only if `Media:FfmpegPath` is set);
+3. `/media/remux/{id}` — ffmpeg fragmented-MP4 pipe (needs ffmpeg, which is auto-detected at startup: `Media:FfmpegPath`, then next to ffprobe, then PATH);
 4. a clear error message.
 
-*Audio tracks:* the selector appears only if switching really works — natively via the browser's `audioTracks` API where available,
-otherwise through the ffmpeg remux endpoint when `Media:FfmpegPath` is set. If neither is possible the tracks found by FFprobe are listed read-only
-(no fake selector). *Subtitles:* external `.srt/.vtt/.ass/.ssa` files next to the movie are converted to WebVTT and served same-origin.
-Seek, volume, speed (0.5–2×), fullscreen and keyboard shortcuts (space, ←/→, ↑/↓, f, m) are included.
+*Audio:* **a file with several audio tracks starts with the English one** (language tag English/eng/en, or a track title such as "ENG 5.1"; otherwise the file's own default).
+Browsers other than Safari cannot switch tracks themselves, so when the English track is not the file's default the player starts from a server-side remux that carries it
+(the remux begins when you press Play, so just opening the page uses no server resources). The headphone menu lists all tracks; picking another one restarts playback at the same position
+with that track (video is copied when it is H.264, otherwise re-encoded; audio becomes stereo AAC). Safari switches natively. If ffmpeg is missing the menu lists the tracks read-only and says why.
+
+*Subtitles:* drawn by the player itself, so they work after audio switches and seeks. **CC menu → pick a file, or Off** (key `C` toggles). External `.srt/.vtt/.ass/.ssa` files next to the movie are offered automatically.
+**Drag and drop** any subtitle file onto the video (or use *Load subtitle file…*) — encodings UTF-8/UTF-16/Windows-1252 are handled, HTML/ASS markup is never executed.
+**Timing & size** panel (CC menu, or the *Adjust timing* button after a drop): ±0.1 s / ±1 s steps and a ±60 s slider (keys `G` earlier / `H` later), **Sync** (pause when you hear a line start; the closest
+subtitle line is aligned to that moment), frame-rate fix presets (23.976 / 24 / 25 fps) for subtitles that drift, and size. Timing is remembered per movie and subtitle file in your browser.
+Subtitle tracks embedded inside the video container cannot be shown (extracting them would mean reading the whole movie file, which this project never does).
+
+*Speed:* a continuous slider from 0.25× to 4× (logarithmic, so 1× sits in the middle) that snaps to round values (0.25, 0.5, 0.75, 1, 1.25 … 4); keys `<` and `>` step through the round values.
+Seek, volume, fullscreen and keyboard shortcuts (space/K, ←/→, ↑/↓, F, M) are included.
+
+### Home page
+Hero (most popular titles with a backdrop) · *Trending Now* (popular recent releases) · *Popular Movies* · *Top Rated* · *Recommended for You* · then **one slider per category** ("Popular in English Movies", …)
+with that category's most popular recent movies (sub-categories included) and a *See all* link. Sliders have arrows, drag/swipe, snap scrolling and page dots.
+"Recently added" is no longer on the home page (it is still a sort option on every category page). Popularity comes from TMDB; without TMDB data the home page shows *New Releases* and *New in …* sliders instead.
 
 ### Admin panel (`/admin`)
 Dashboard (counts, running scans, recent failures) · Categories · Sources (create, edit, **Test connection** with strategy suggestion, enable/disable, delete) ·
@@ -153,7 +167,7 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 | `Crawler:MaxRecursionDepth` | 6 | for `RecursiveDiscovery` / `ManualFull` |
 | `Crawler:FailureBackoffMinutes` | 60 | wait after a failed scan |
 | `Crawler:PreferFolderPoster` | true | folder poster before TMDB poster |
-| `Media:FfprobePath` / `FfmpegPath` | `ffprobe` / empty | tools; empty ffmpeg = remux disabled |
+| `Media:FfprobePath` / `FfmpegPath` | `ffprobe` / empty | tools; empty ffmpeg = auto-detect (next to ffprobe, then PATH) |
 | `Media:ProbeTimeoutSeconds`, `MaxConcurrentProbes`, `MaxRemuxSessions` | 90, 2, 2 | limits |
 | `Admin:Username`, `PasswordHash`, `Password`, `SessionHours` | admin, –, –, 8 | admin login |
 | `Seed:Sources[]` | the two ISP servers | sources created on first start (name, category slug, URL, strategy, cooldown, include/exclude) |

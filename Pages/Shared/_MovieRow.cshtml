@@ -2,18 +2,27 @@
 @{
     var selectable = ViewData["Selectable"] as bool? ?? false;
 }
-<section class="row" aria-labelledby="row-@Model.Id">
+<section class="row row--slider" aria-labelledby="row-@Model.Id">
     <div class="row-head">
         <h2 id="row-@Model.Id">@Model.Title</h2>
+        @if (!string.IsNullOrEmpty(Model.LinkUrl))
+        {
+            <a class="row-link" href="@Model.LinkUrl">See all ›</a>
+        }
         <div class="row-nav">
             <button type="button" class="row-btn" data-dir="-1" aria-label="Scroll left">‹</button>
             <button type="button" class="row-btn" data-dir="1" aria-label="Scroll right">›</button>
         </div>
     </div>
-    <div class="row-track" tabindex="0">
-        @foreach (var m in Model.Items)
-        {
-            <partial name="_MovieCard" model="m" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = selectable }' />
-        }
+    <div class="row-viewport">
+        <button type="button" class="row-edge row-edge--prev" data-dir="-1" aria-label="Previous movies">‹</button>
+        <div class="row-track" tabindex="0">
+            @foreach (var m in Model.Items)
+            {
+                <partial name="_MovieCard" model="m" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = selectable }' />
+            }
+        </div>
+        <button type="button" class="row-edge row-edge--next" data-dir="1" aria-label="Next movies">›</button>
     </div>
+    <div class="row-dots" aria-hidden="true"></div>
 </section>

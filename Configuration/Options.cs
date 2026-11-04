@@ -51,7 +51,6 @@ public sealed class MediaOptions
     public int MaxConcurrentProbes { get; set; } = 2;
     public int MaxFilesProbedPerMovie { get; set; } = 6;
     public int MaxRemuxSessions { get; set; } = 2;
-    public bool RemuxEnabled => !string.IsNullOrWhiteSpace(FfmpegPath);
 }
 
 public sealed class AdminOptions
