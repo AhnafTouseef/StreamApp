@@ -632,11 +632,10 @@
     var m = el.menuAudio; m.innerHTML = '';
     heading(m, 'Audio');
     var many = audioTracks.length > 1;
-
-    // One track and nothing unknown: there is nothing to choose, so the button is hidden rather than shown dead.
-    if (!many && !nativeAudio && cfg.inspected) { el.btnAudio.parentElement.style.display = 'none'; return; }
+    // The button is always present so it is never a mystery why there is no audio switch; the menu explains the situation.
     el.btnAudio.parentElement.style.display = '';
     el.btnAudio.disabled = false;
+    el.btnAudio.classList.toggle('is-dim', !many && !nativeAudio);
 
     if (nativeAudio) {
       for (var i = 0; i < video.audioTracks.length; i++) {
@@ -652,10 +651,16 @@
     }
 
     if (!many) {
-      note(m, cfg.inspected
-        ? 'No audio information is available for this file.'
-        : 'This file has not been inspected yet, so its audio tracks are unknown' + (cfg.inspectionError ? ' (' + cfg.inspectionError + ')' : '') +
-          '. An administrator can run Re-inspect on the movie after installing FFprobe.');
+      if (audioTracks.length === 1) {
+        var only = document.createElement('div'); only.className = 'note'; only.textContent = '• ' + label(audioTracks[0], 0); m.appendChild(only);
+        note(m, 'This file has only one audio track, so there is nothing to switch to. A different file of this movie (see the file list under the player) may have other languages.');
+      } else if (!cfg.inspected) {
+        note(m, 'The audio tracks of this file are unknown because the server could not inspect it' +
+          (cfg.inspectionError ? ' (' + cfg.inspectionError + ')' : ' yet') +
+          '. Make sure FFprobe is installed and reachable, then in the admin panel open the movie and press Re-inspect.');
+      } else {
+        note(m, 'No audio information is available for this file.');
+      }
       return;
     }
 

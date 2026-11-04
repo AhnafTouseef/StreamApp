@@ -62,7 +62,7 @@ public class IndexModel : PageModel
             proxyUrl = $"/media/stream/{Current.Id}",
             remuxUrl = $"/media/remux/{Current.Id}",
             remuxEnabled = _ffmpeg.IsAvailable,
-            inspected = Current.InspectedAt != null,
+            inspected = Current.InspectedAt != null && Current.InspectionError == null, // a failed ffprobe run also sets InspectedAt, but it tells us nothing about the tracks
             inspectionError = Current.InspectionError,
             extension = Current.Extension,
             duration = Current.Duration,

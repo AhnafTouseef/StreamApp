@@ -365,3 +365,5 @@ details.panel summary { cursor: pointer; font-weight: 600; }
 .row-dots { display: flex; justify-content: center; gap: 6px; min-height: 6px; margin-top: -4px; }
 .row-dots span { width: 18px; height: 3px; border-radius: 2px; background: var(--line); transition: background .2s, width .2s; }
 .row-dots span.is-on { background: var(--accent); width: 28px; }
+
+.ctrl-btn.is-dim { opacity: .55; }
