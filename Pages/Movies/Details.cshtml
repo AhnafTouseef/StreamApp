@@ -84,7 +84,14 @@
                                 @if (subs > 0) { <text> · @subs subtitle@(subs == 1 ? "" : "s")</text> }
                             </span>
                         </div>
-                        <a class="btn btn-primary btn-sm" href="/watch/@m.Id?file=@f.Id">▶ Play</a>
+                        <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+                            @if (!string.IsNullOrWhiteSpace(f.FileUrl))
+                            {
+                                <button type="button" class="btn btn-ghost btn-sm copy-source" data-copy-url="@f.FileUrl">Copy URL</button>
+                                <a class="btn btn-ghost btn-sm" href="@f.FileUrl" target="_blank" rel="noopener">Download</a>
+                            }
+                            <a class="btn btn-primary btn-sm" href="/watch/@m.Id?file=@f.Id">▶ Play</a>
+                        </div>
                     </li>
                 }
             </ul>
@@ -114,3 +121,35 @@
         <partial name="_MovieRow" model="@(new MovieRowModel { Id = "similar", Title = "Similar movies", Items = Model.Similar })" />
     </div>
 }
+
+<script>
+    document.addEventListener('click', async function (event) {
+        const button = event.target.closest('.copy-source');
+        if (!button) return;
+
+        const url = button.dataset.copyUrl || '';
+        const original = button.textContent;
+
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(url);
+            } else {
+                const textArea = document.createElement('textarea');
+                textArea.value = url;
+                textArea.setAttribute('readonly', '');
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+            }
+            button.textContent = 'Copied';
+            button.disabled = true;
+            setTimeout(function () { button.textContent = original; button.disabled = false; }, 1200);
+        } catch (err) {
+            button.textContent = 'Copy failed';
+            setTimeout(function () { button.textContent = original; }, 1600);
+        }
+    });
+</script>

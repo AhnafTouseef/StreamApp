@@ -13,7 +13,7 @@ public class GenreModel : PageModel
     public Genre Genre { get; private set; } = null!;
     public BrowseViewModel Browse { get; private set; } = new();
 
-    public async Task<IActionResult> OnGetAsync(string slug, string? q, int? year, string? sort, int page = 1)
+    public async Task<IActionResult> OnGetAsync(string slug, string? q, int? year, string? sort, [FromQuery(Name = "page")] int page = 1)  // explicit: Razor Pages reserves the route value "page", so an unannotated parameter never sees ?page=N
     {
         var ct = HttpContext.RequestAborted;
         var genre = await _movies.GetGenreBySlugAsync(slug, ct);

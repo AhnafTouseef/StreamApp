@@ -22,7 +22,7 @@ public class CategoryModel : PageModel
     public ResolvedCategory Resolved { get; private set; } = null!;
     public BrowseViewModel Browse { get; private set; } = new();
 
-    public async Task<IActionResult> OnGetAsync(string slug, string? q, string? genre, int? year, string? sort, int page = 1)
+    public async Task<IActionResult> OnGetAsync(string slug, string? q, string? genre, int? year, string? sort, [FromQuery(Name = "page")] int page = 1)  // explicit: Razor Pages reserves the route value "page", so an unannotated parameter never sees ?page=N
     {
         var ct = HttpContext.RequestAborted;
         var resolved = await _categories.ResolveAsync(slug, ct);
@@ -34,7 +34,7 @@ public class CategoryModel : PageModel
 
         var result = await _movies.BrowseAsync(new BrowseRequest
         {
-            CategoryIds = resolved.AllIds, Query = q, GenreSlug = genre, Year = year, Sort = sort ?? "recent", Page = page
+            CategoryIds = resolved.AllIds, Query = q, GenreSlug = genre, Year = year, Sort = sort ?? "popular", Page = page
         }, ct);
 
         var sourceIds = await _db.Sources.AsNoTracking().Where(s => resolved.AllIds.Contains(s.CategoryId)).Select(s => s.Id).ToListAsync(ct);
@@ -56,7 +56,7 @@ public class CategoryModel : PageModel
             BasePath = $"/movies/{resolved.Category.Slug}",
             Result = result,
             Facets = await _movies.GetFacetsAsync(resolved.AllIds, ct),
-            Query = q, Genre = genre, Year = year, Sort = sort ?? "recent",
+            Query = q, Genre = genre, Year = year, Sort = sort ?? "popular",
             QueryPlaceholder = $"Search {resolved.Category.Name}",
             Tabs = tabs,
             ScanActive = sourceIds.Any(id => _scans.IsRunning(id)),

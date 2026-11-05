@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using MovieHub.Models;
 using MovieHub.Services;
@@ -14,7 +15,7 @@ public class IndexModel : PageModel
     public List<NavCategory> CategoryOptions { get; private set; } = new();
     public string? CategorySlug { get; private set; }
 
-    public async Task OnGetAsync(string? q, string? category, string? genre, int? year, string? sort, int page = 1)
+    public async Task OnGetAsync(string? q, string? category, string? genre, int? year, string? sort, [FromQuery(Name = "page")] int page = 1)  // explicit: Razor Pages reserves the route value "page", so an unannotated parameter never sees ?page=N
     {
         var ct = HttpContext.RequestAborted;
         CategoryOptions = (await _categories.GetNavigationAsync(ct)).SelectMany(c => new[] { c }.Concat(c.Children)).ToList();

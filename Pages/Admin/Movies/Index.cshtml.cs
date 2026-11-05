@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using MovieHub.Data;
@@ -23,7 +24,7 @@ public class IndexModel : AdminPageModel
     public List<Source> Sources { get; private set; } = new();
     public Dictionary<string, string?> QueryMap => new() { ["q"] = Q, ["source"] = Source?.ToString(), ["match"] = Match?.ToString() };
 
-    public async Task OnGetAsync(string? q, int? source, MatchStatus? match, int page = 1)
+    public async Task OnGetAsync(string? q, int? source, MatchStatus? match, [FromQuery(Name = "page")] int page = 1)  // explicit: Razor Pages reserves the route value "page", so an unannotated parameter never sees ?page=N
     {
         var ct = HttpContext.RequestAborted;
         Q = q; Source = source; Match = match;
