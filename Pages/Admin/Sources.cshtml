@@ -1,14 +1,19 @@
 @page "/admin/sources"
 @model MovieHub.Pages.Admin.SourcesModel
 @{ ViewData["Title"] = "Sources"; ViewData["Active"] = "sources"; var e = Model.Input; }
-<h1>Sources</h1>
+<div class="page-head"><h1>Sources</h1><button class="btn btn-primary" type="button" data-open="form-dialog">+ Add source</button></div>
 <p class="muted">Only registered, enabled sources are ever contacted. Add the root directory of an ISP listing, pick how it is organised, and assign it to a category.</p>
 
-<form method="post" asp-page-handler="Save" class="panel">
-    <div asp-validation-summary="All" class="alert err"></div>
-    <h3>@(e.Id == 0 ? "Register a source" : "Edit source")</h3>
-    <input type="hidden" asp-for="Input.Id" />
-    <div class="form-grid">
+<dialog id="form-dialog" class="modal" data-return="/admin/sources" @(Model.ShowForm ? "open" : null) @(Model.ShowForm ? "data-autoopen" : null)>
+    <form method="post" asp-page-handler="Save" class="modal-form">
+        <div class="modal-head">
+            <h3>@(e.Id == 0 ? "Register a source" : "Edit source")</h3>
+            <button type="button" class="modal-x" data-close aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+            <div asp-validation-summary="All" class="alert err"></div>
+            <input type="hidden" asp-for="Input.Id" />
+            <div class="form-grid">
         <div class="field"><label asp-for="Input.Name">Name</label><input asp-for="Input.Name" required maxlength="200" /></div>
         <div class="field"><label asp-for="Input.CategoryId">Category</label>
             <select asp-for="Input.CategoryId">@foreach (var c in Model.Categories) { <option value="@c.Id">@c.Name</option> }</select></div>
@@ -21,11 +26,13 @@
         <div class="field wide"><label asp-for="Input.ExcludedFolders">Excluded folders (optional, one per line)</label><textarea asp-for="Input.ExcludedFolders" placeholder="Marvel MCU"></textarea></div>
         <div class="field"><label><input type="checkbox" asp-for="Input.IsEnabled" /> Crawling enabled</label></div>
     </div>
-    <div class="actions" style="margin-top:14px">
-        <button class="btn btn-primary" type="submit">@(e.Id == 0 ? "Register source" : "Save changes")</button>
-        @if (e.Id != 0) { <a class="btn btn-ghost" href="/admin/sources">Cancel</a> }
-    </div>
-</form>
+        </div>
+        <div class="modal-foot">
+            <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+            <button class="btn btn-primary" type="submit">@(e.Id == 0 ? "Register source" : "Save changes")</button>
+        </div>
+    </form>
+</dialog>
 
 @if (Model.TestResult != null)
 {
@@ -44,7 +51,14 @@
         var running = Model.Running.TryGetValue(s.Id, out var p) ? p : null;
         <tr>
             <td><strong>@s.Name</strong><br /><span class="mono muted truncate" title="@s.RootUrl">@s.RootUrl</span></td>
-            <td>@s.Category.Name</td>
+            <td>@s.Category.Name
+                @{ var misfiled = Model.MisfiledCounts.GetValueOrDefault(s.Id); }
+                @if (misfiled > 0)
+                {
+                    <div class="muted" style="max-width:220px">@misfiled.ToString("N0") of its movies are filed under a different category.</div>
+                    <form method="post" asp-page-handler="SyncCategory" asp-route-id="@s.Id" class="inline" onsubmit="return confirm('Move all @misfiled movies of this source into @s.Category.Name? Movies you filed elsewhere by hand are moved too.')"><button class="btn btn-primary btn-sm" type="submit">Move them to @s.Category.Name</button></form>
+                }
+            </td>
             <td>@s.ScanStrategy</td>
             <td>@s.CooldownHours h</td>
             <td>@(s.LastSuccessfulScan?.ToString("yyyy-MM-dd HH:mm") ?? "never")</td>
@@ -62,7 +76,9 @@
                 <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(running != null)">Scan now</button></form>
                 <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" class="inline" onsubmit="return confirm('A deep scan re-lists every year folder and may take a while. Continue?')"><button class="btn btn-ghost btn-sm" type="submit" disabled="@(running != null)">Deep scan</button></form>
                 <form method="post" asp-page-handler="Toggle" asp-route-id="@s.Id" class="inline"><button class="btn btn-ghost btn-sm" type="submit">@(s.IsEnabled ? "Disable" : "Enable")</button></form>
-                <form method="post" asp-page-handler="Delete" asp-route-id="@s.Id" class="inline" onsubmit="return confirm('Delete this source?')"><button class="btn btn-danger btn-sm" type="submit">Delete</button></form>
+                @{ var n = Model.MovieCounts.GetValueOrDefault(s.Id); }
+                <form method="post" asp-page-handler="Clear" asp-route-id="@s.Id" class="inline" onsubmit="return confirm('Remove the @n movie entries of this source and forget what was scanned? The source stays, so you can scan it again from scratch.')"><button class="btn btn-ghost btn-sm" type="submit" disabled="@(running != null)">Clear movies</button></form>
+                <form method="post" asp-page-handler="Delete" asp-route-id="@s.Id" class="inline" onsubmit="return confirm('Delete this source AND its @n movie entries? This cannot be undone (the ISP server itself is not touched).')"><button class="btn btn-danger btn-sm" type="submit" disabled="@(running != null)">Delete</button></form>
             </td>
         </tr>
     }

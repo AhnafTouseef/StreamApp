@@ -172,6 +172,26 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 | `Admin:Username`, `PasswordHash`, `Password`, `SessionHours` | admin, –, –, 8 | admin login |
 | `Seed:Sources[]` | the two ISP servers | sources created on first start (name, category slug, URL, strategy, cooldown, include/exclude) |
 
+## Hiding a category
+
+**Hide** on Admin > Categories removes the category from the navigation and hides its movies everywhere: home rows, search, genre lists, the category page and direct
+movie/watch links (these return 404 for visitors; a signed-in admin can still preview). Sub-categories of a hidden category are hidden with it. Nothing is deleted; **Show** brings it all back.
+Direct media URLs for a hidden movie are not separately blocked; the pages that hand out those URLs are.
+
+## Removing entries (debugging a bad scan)
+
+Nothing here ever touches the ISP server; only MovieHub's own database changes.
+
+- **Admin > Sources > Clear movies**: removes every movie entry of that source and forgets what was scanned, but keeps the source. Press *Scan now* to index it again from scratch.
+- **Admin > Sources > Delete**: removes the source *and* all of its movie entries (the confirm dialog shows how many).
+- **Admin > Movies**: tick entries and press *Delete selected*. With a filter active (source, match status or search text) a *Delete all N matching the filter* button removes every page of results at once. It is hidden without a filter, so the whole catalog cannot be wiped by one click.
+
+## Changing a source's category
+
+A movie copies its category from its source when it is first indexed. Saving a source with a different category now moves its movies too
+(only those still in the old category; a movie you filed elsewhere by hand stays put). For entries that were misfiled earlier, the Sources list
+shows "N of its movies are filed under a different category" with a **Move them to ...** button.
+
 ## FFmpeg inside the project
 
 ffmpeg and ffprobe are looked up in this order, and both are looked up the same way, so they can no longer end up in different places:

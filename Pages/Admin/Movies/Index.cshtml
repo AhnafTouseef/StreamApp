@@ -9,12 +9,23 @@
     <button class="btn btn-primary btn-sm" type="submit">Filter</button>
     <span class="result-count">@Model.Total.ToString("N0") entries</span>
 </form>
+<form method="post" asp-page-handler="DeleteSelected" id="bulk">
+<input type="hidden" name="q" value="@Model.Q" /><input type="hidden" name="source" value="@Model.Source" /><input type="hidden" name="match" value="@Model.Match" /><input type="hidden" name="pageNo" value="@Model.PageNo" />
+<div class="bulk-bar">
+    <button class="btn btn-danger btn-sm" type="submit" onclick="return document.querySelectorAll('#bulk .pick:checked').length > 0 && confirm('Remove the ticked entries from the catalog?')">Delete selected</button>
+    @if (Model.HasFilter && Model.Total > 0)
+    {
+        <button class="btn btn-ghost btn-sm" type="submit" formaction="?handler=DeleteMatching" onclick="return confirm('Remove ALL @Model.Total.ToString("N0") entries that match the current filter (every page)? This cannot be undone.')">Delete all @Model.Total.ToString("N0") matching the filter</button>
+    }
+    <span class="muted">Only the catalog is changed; the ISP server is never touched.</span>
+</div>
 <div class="table-wrap"><table class="data">
-    <thead><tr><th>Title</th><th>Year</th><th>Folder</th><th>Source</th><th>TMDB</th><th>Match</th><th>Files</th><th></th></tr></thead>
+    <thead><tr><th><input type="checkbox" aria-label="Select all on this page" onclick="document.querySelectorAll('#bulk .pick').forEach(c => c.checked = this.checked)" /></th><th>Title</th><th>Year</th><th>Folder</th><th>Source</th><th>TMDB</th><th>Match</th><th>Files</th><th></th></tr></thead>
     <tbody>
     @foreach (var m in Model.Items)
     {
         <tr>
+            <td><input type="checkbox" class="pick" name="ids" value="@m.Id" aria-label="Select @m.Title" /></td>
             <td><a href="/admin/movies/edit/@m.Id">@m.Title</a></td><td>@m.Year</td>
             <td><span class="truncate muted" title="@m.FolderName">@m.FolderName</span></td>
             <td>@m.SourceName</td><td>@m.TmdbId</td>
@@ -25,7 +36,8 @@
             </td>
         </tr>
     }
-    @if (Model.Items.Count == 0) { <tr><td colspan="8" class="muted">No entries match.</td></tr> }
+    @if (Model.Items.Count == 0) { <tr><td colspan="9" class="muted">No entries match.</td></tr> }
     </tbody>
 </table></div>
+</form>
 <partial name="_Pagination" model="@("/admin/movies", (IDictionary<string, string?>)Model.QueryMap, Model.PageNo, Model.Pages)" />

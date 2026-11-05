@@ -37,6 +37,27 @@ public sealed class CategoryService
         _cache = cache;
     }
 
+    /// <summary>
+    /// Categories that are shown on the site: active themselves AND with every ancestor active, so hiding a parent hides its sub-categories too.
+    /// <paramref name="all"/> must contain every category (also the hidden ones).
+    /// </summary>
+    public static List<Category> EffectivelyActive(IReadOnlyCollection<Category> all)
+    {
+        var byId = all.ToDictionary(c => c.Id);
+        bool Shown(Category c)
+        {
+            for (var i = 0; i < 50; i++) // depth guard against a corrupt cycle
+            {
+                if (!c.IsActive) return false;
+                if (c.ParentCategoryId is not { } pid) return true;
+                if (!byId.TryGetValue(pid, out var parent)) return true;
+                c = parent;
+            }
+            return false;
+        }
+        return all.Where(Shown).ToList();
+    }
+
     /// <summary>Call after any category change so the navigation picks it up immediately.</summary>
     public void Invalidate() => _cache.Remove(NavCacheKey);
 
@@ -46,8 +67,9 @@ public sealed class CategoryService
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
             await using var db = await _factory.CreateDbContextAsync(ct);
-            var all = await db.Categories.AsNoTracking().Where(c => c.IsActive)
+            var every = await db.Categories.AsNoTracking()
                 .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name).ToListAsync(ct);
+            var all = EffectivelyActive(every);
 
             NavCategory Build(Category c) => new()
             {
@@ -63,8 +85,9 @@ public sealed class CategoryService
     public async Task<ResolvedCategory?> ResolveAsync(string slug, CancellationToken ct = default)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
-        var all = await db.Categories.AsNoTracking().Where(c => c.IsActive)
+        var every = await db.Categories.AsNoTracking()
             .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name).ToListAsync(ct);
+        var all = EffectivelyActive(every);
 
         var category = all.FirstOrDefault(c => string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase));
         if (category == null) return null;

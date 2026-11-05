@@ -36,8 +36,21 @@ public sealed class MovieService
         Genres = m.MovieGenres.Select(g => g.Genre.Name).ToList() // capped to 3 by MovieCardDto.Genres; Take() here would need APPLY (unsupported on SQLite)
     };
 
-    /// <summary>Movies whose category is active. Movies of disabled sources stay visible: an offline ISP must not empty the catalog.</summary>
-    private IQueryable<Movie> Visible() => _db.Movies.AsNoTracking().Where(m => m.Category.IsActive);
+    /// <summary>
+    /// Movies whose category is shown: the category and all of its ancestors (up to 4 levels) are active, so hiding a category hides its movies
+    /// and those of its sub-categories. Movies of disabled sources stay visible: an offline ISP must not empty the catalog.
+    /// </summary>
+    private IQueryable<Movie> Visible() => _db.Movies.AsNoTracking().Where(VisibleMovie);
+
+    public static readonly System.Linq.Expressions.Expression<Func<Movie, bool>> VisibleMovie = m =>
+        m.Category.IsActive
+        && (m.Category.Parent == null || (m.Category.Parent.IsActive
+            && (m.Category.Parent.Parent == null || (m.Category.Parent.Parent.IsActive
+                && (m.Category.Parent.Parent.Parent == null || m.Category.Parent.Parent.Parent!.IsActive)))));
+
+    /// <summary>Whether the movie is shown on the site (its category chain is active). Used to refuse direct links to hidden movies.</summary>
+    public Task<bool> IsVisibleAsync(int movieId, CancellationToken ct = default) =>
+        _db.Movies.AsNoTracking().Where(m => m.Id == movieId).Where(VisibleMovie).AnyAsync(ct);
 
     // ------------------------------------------------------------------ home
 
@@ -104,7 +117,7 @@ public sealed class MovieService
     private async Task<List<MovieRowModel>> GetCategorySlidersAsync(int recentYear, CancellationToken ct)
     {
         var rows = new List<MovieRowModel>();
-        var categories = await _db.Categories.AsNoTracking().Where(c => c.IsActive).OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name).ToListAsync(ct);
+        var categories = CategoryService.EffectivelyActive(await _db.Categories.AsNoTracking().OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name).ToListAsync(ct));
         var byParent = categories.Where(c => c.ParentCategoryId != null).GroupBy(c => c.ParentCategoryId!.Value).ToDictionary(g => g.Key, g => g.ToList());
 
         foreach (var top in categories.Where(c => c.ParentCategoryId == null))
@@ -235,7 +248,10 @@ public sealed class MovieService
             .Select(g => new GenreFacet
             {
                 Id = g.Id, Name = g.Name, Slug = g.Slug,
-                Count = g.MovieGenres.Count(mg => mg.Movie.Category.IsActive)
+                Count = g.MovieGenres.Count(mg => mg.Movie.Category.IsActive
+                    && (mg.Movie.Category.Parent == null || (mg.Movie.Category.Parent.IsActive
+                        && (mg.Movie.Category.Parent.Parent == null || (mg.Movie.Category.Parent.Parent.IsActive
+                            && (mg.Movie.Category.Parent.Parent.Parent == null || mg.Movie.Category.Parent.Parent.Parent!.IsActive))))))
             }).ToListAsync(ct);
         return rows.Where(g => g.Count > 0).OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }

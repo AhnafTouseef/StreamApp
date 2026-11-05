@@ -36,10 +36,15 @@ public class SourcesModel : AdminPageModel
         _db = db; _scans = scans; _crawler = crawler; _policy = policy; _opt = opt.Value;
     }
 
+    /// <summary>Open the add/edit popup: when editing a row, or when a submitted form had validation errors.</summary>
+    public bool ShowForm => Input.Id != 0 || !ModelState.IsValid;
+
     [BindProperty] public SourceInput Input { get; set; } = new();
     public List<Source> Sources { get; private set; } = new();
     public List<Category> Categories { get; private set; } = new();
     public Dictionary<int, int> MovieCounts { get; private set; } = new();
+    /// <summary>Movies whose category differs from their source's category (a source was re-assigned after its movies were indexed).</summary>
+    public Dictionary<int, int> MisfiledCounts { get; private set; } = new();
     public IReadOnlyDictionary<int, ScanProgress> Running => _scans.Running;
     public SourceTestResult? TestResult { get; private set; }
 
@@ -49,6 +54,10 @@ public class SourcesModel : AdminPageModel
         Sources = await _db.Sources.AsNoTracking().Include(s => s.Category).OrderBy(s => s.Name).ToListAsync(ct);
         Categories = await _db.Categories.AsNoTracking().OrderBy(c => c.Name).ToListAsync(ct);
         MovieCounts = await _db.Movies.GroupBy(m => m.SourceId).Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
+        var catOf = Sources.ToDictionary(x => x.Id, x => x.CategoryId);
+        var pairs = await _db.Movies.GroupBy(m => new { m.SourceId, m.CategoryId }).Select(g => new { g.Key.SourceId, g.Key.CategoryId, N = g.Count() }).ToListAsync(ct);
+        MisfiledCounts = pairs.Where(x => catOf.TryGetValue(x.SourceId, out var c) && c != x.CategoryId)
+            .GroupBy(x => x.SourceId).ToDictionary(g => g.Key, g => g.Sum(x => x.N));
     }
 
     public async Task OnGetAsync(int? edit)
@@ -92,6 +101,7 @@ public class SourcesModel : AdminPageModel
             return RedirectToPage(new { edit = entity.Id });
         }
 
+        var oldCategoryId = Input.Id == 0 ? 0 : entity.CategoryId;
         entity.Name = Input.Name.Trim();
         entity.CategoryId = Input.CategoryId;
         entity.RootUrl = root;
@@ -102,8 +112,20 @@ public class SourcesModel : AdminPageModel
         entity.IsEnabled = Input.IsEnabled;
         await _db.SaveChangesAsync(ct);
 
+        // A movie copies its category from the source when it is indexed, so re-assigning a source has to move its movies too.
+        // Only movies that still sit in the old category move; a movie an admin filed elsewhere by hand stays where it is.
+        var moved = 0;
+        if (oldCategoryId != 0 && oldCategoryId != entity.CategoryId)
+        {
+            var sourceId = entity.Id; var from = oldCategoryId; var to = entity.CategoryId;
+            moved = await _db.Movies.Where(m => m.SourceId == sourceId && m.CategoryId == from)
+                .ExecuteUpdateAsync(u => u.SetProperty(m => m.CategoryId, to), ct);
+        }
+
         await _policy.RefreshAsync(HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>(), ct);
-        Ok($"Source '{entity.Name}' saved. Use Test to check the connection, then Scan now.");
+        Ok(moved > 0
+            ? $"Source '{entity.Name}' saved and its {moved:N0} movies were moved to the new category."
+            : $"Source '{entity.Name}' saved. Use Test to check the connection, then Scan now.");
         return RedirectToPage();
     }
 
@@ -125,18 +147,39 @@ public class SourcesModel : AdminPageModel
     public async Task<IActionResult> OnPostDeleteAsync(int id)
     {
         var ct = HttpContext.RequestAborted;
-        var s = await _db.Sources.FindAsync(new object[] { id }, ct);
+        var s = await _db.Sources.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
         if (s == null) return RedirectToPage();
-        if (_scans.IsRunning(id)) { Fail("A scan of this source is running."); return RedirectToPage(); }
-        if (await _db.Movies.AnyAsync(m => m.SourceId == id, ct))
-        {
-            Fail("This source still has indexed movies. Disable it instead (the catalog entries stay), or remove the movies first.");
-            return RedirectToPage();
-        }
-        _db.Sources.Remove(s);
-        await _db.SaveChangesAsync(ct);
+        if (_scans.IsRunning(id)) { Fail("A scan of this source is running. Wait for it to finish."); return RedirectToPage(); }
+        var name = s.Name;
+        var removed = await CatalogCleaner.DeleteSourceAsync(_db, id, ct);
         await _policy.RefreshAsync(HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>(), ct);
-        Ok($"Source '{s.Name}' removed.");
+        Ok($"Source '{name}' removed together with {removed:N0} movie entries. Nothing was deleted on the ISP server.");
+        return RedirectToPage();
+    }
+
+    /// <summary>Wipes the movie entries of a source and its scan memory, keeping the source, so it can be rescanned from scratch.</summary>
+    public async Task<IActionResult> OnPostClearAsync(int id)
+    {
+        var ct = HttpContext.RequestAborted;
+        var s = await _db.Sources.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (s == null) return RedirectToPage();
+        if (_scans.IsRunning(id)) { Fail("A scan of this source is running. Wait for it to finish."); return RedirectToPage(); }
+        var name = s.Name;
+        var removed = await CatalogCleaner.ClearSourceAsync(_db, id, ct);
+        Ok($"Removed {removed:N0} movie entries of '{name}'. Press Scan now to index it again from scratch. Nothing was deleted on the ISP server.");
+        return RedirectToPage();
+    }
+
+    /// <summary>Files every movie of the source under the source's current category (fixes a source that was re-assigned earlier).</summary>
+    public async Task<IActionResult> OnPostSyncCategoryAsync(int id)
+    {
+        var ct = HttpContext.RequestAborted;
+        var s = await _db.Sources.AsNoTracking().Include(x => x.Category).FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (s == null) return RedirectToPage();
+        var to = s.CategoryId;
+        var moved = await _db.Movies.Where(m => m.SourceId == id && m.CategoryId != to)
+            .ExecuteUpdateAsync(u => u.SetProperty(m => m.CategoryId, to), ct);
+        Ok($"{moved:N0} movies of '{s.Name}' were moved to '{s.Category.Name}'.");
         return RedirectToPage();
     }
 }

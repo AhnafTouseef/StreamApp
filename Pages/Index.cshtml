@@ -49,16 +49,17 @@ else
     }
 
     <div class="rows">
-        @foreach (var row in Model.Home.Rows)
+        @* Only the first slider (Trending) drives the banner; cards in every other row simply open the movie. *@
+        @foreach (var (row, index) in Model.Home.Rows.Select((r, i) => (r, i)))
         {
-            <partial name="_MovieRow" model="row" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = true }' />
+            <partial name="_MovieRow" model="row" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = (index == 0) }' />
         }
         @if (Model.Home.CategoryRows.Count > 0)
         {
             <h2 class="rows-divider">By category</h2>
             @foreach (var row in Model.Home.CategoryRows)
             {
-                <partial name="_MovieRow" model="row" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = true }' />
+                <partial name="_MovieRow" model="row" view-data='new ViewDataDictionary(ViewData) { ["Selectable"] = false }' />
             }
         }
     </div>

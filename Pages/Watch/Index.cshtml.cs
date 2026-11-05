@@ -29,6 +29,7 @@ public class IndexModel : PageModel
     {
         var movie = await _movies.GetMovieAsync(id, HttpContext.RequestAborted);
         if (movie == null) return NotFound();
+        if (!User.Identity!.IsAuthenticated && !await _movies.IsVisibleAsync(id, HttpContext.RequestAborted)) return NotFound(); // hidden category (admins can still preview)
         Movie = movie;
 
         var files = movie.MediaFiles.OrderBy(f => f.FileName).ToList();

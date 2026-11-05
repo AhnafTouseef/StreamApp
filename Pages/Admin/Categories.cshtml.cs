@@ -26,6 +26,9 @@ public class CategoriesModel : AdminPageModel
     private readonly CategoryService _categories;
     public CategoriesModel(AppDbContext db, CategoryService categories) { _db = db; _categories = categories; }
 
+    /// <summary>Open the add/edit popup: when editing a row, or when a submitted form had validation errors.</summary>
+    public bool ShowForm => Input.Id != 0 || !ModelState.IsValid;
+
     [BindProperty] public CategoryInput Input { get; set; } = new();
     public List<Category> All { get; private set; } = new();
     public List<CategoryRow> Rows { get; private set; } = new();

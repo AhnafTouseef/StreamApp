@@ -368,3 +368,18 @@ details.panel summary { cursor: pointer; font-weight: 600; }
 
 .ctrl-btn.is-dim { opacity: .55; }
 .notice.notice-error { border-color: var(--bad, #e5484d); color: var(--text, inherit); }
+.bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; font-size: .88rem; }
+
+/* ---- admin: list pages with a popup form ---- */
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 8px; }
+.page-head h1 { margin: 0; }
+dialog.modal { border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); color: var(--text, inherit); padding: 0; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-shadow: 0 24px 80px rgba(0,0,0,.6); }
+dialog.modal::backdrop { background: rgba(0,0,0,.62); }
+dialog.modal[open] { display: flex; flex-direction: column; }
+.modal-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 48px); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.modal-head h3 { margin: 0; font-size: 1.05rem; }
+.modal-x { background: none; border: 0; color: var(--muted); font-size: 1.6rem; line-height: 1; cursor: pointer; padding: 0 4px; }
+.modal-x:hover { color: var(--text, #fff); }
+.modal-body { padding: 18px; overflow-y: auto; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line); }

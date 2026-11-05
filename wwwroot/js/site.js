@@ -163,7 +163,7 @@
   // Selecting a card (in any row) makes that movie the featured banner. Modified clicks keep the normal link behaviour.
   document.addEventListener('click', function (e) {
     var card = e.target.closest && e.target.closest('.card[data-feature]');
-    if (!card || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    if (!card || !card.dataset.feature || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
     var item = {
       id: Number(card.dataset.feature), title: card.dataset.title, year: card.dataset.year,

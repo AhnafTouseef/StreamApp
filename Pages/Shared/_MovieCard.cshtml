@@ -4,12 +4,19 @@
     var genres = string.Join(", ", Model.Genres);
     var rating = Model.Rating?.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
     var sub = (Model.Year?.ToString() ?? "—") + (rating != null ? " · ★ " + rating : "");
-    // Razor omits an attribute whose value is null, so these only appear on the home page where cards can feature a movie.
-    string? F(string? v) => selectable ? (v ?? "") : null;
+    // Cards on the home page's first row carry the data the banner needs; every other card has no data-feature attribute at all
+    // (Razor renders data-x="" for a null value instead of omitting it, so the attributes are written out explicitly).
+    string Attr(string name, string? v) => name + "=\"" + System.Text.Encodings.Web.HtmlEncoder.Default.Encode(v ?? "") + "\"";
+    var featureAttrs = selectable
+        ? new Microsoft.AspNetCore.Html.HtmlString(string.Join(" ", new[]
+        {
+            Attr("data-feature", Model.Id.ToString()), Attr("data-title", Model.Title), Attr("data-year", Model.Year?.ToString()),
+            Attr("data-rating", rating), Attr("data-genres", genres), Attr("data-overview", Model.Overview),
+            Attr("data-backdrop", Model.BackdropUrl ?? Model.PosterUrl)
+        }))
+        : Microsoft.AspNetCore.Html.HtmlString.Empty;
 }
-<a class="card" href="/movie/@Model.Id" title="@Model.Title"
-   data-feature="@F(Model.Id.ToString())" data-title="@F(Model.Title)" data-year="@F(Model.Year?.ToString())"
-   data-rating="@F(rating)" data-genres="@F(genres)" data-overview="@F(Model.Overview)" data-backdrop="@F(Model.BackdropUrl ?? Model.PosterUrl)">
+<a class="card" href="/movie/@Model.Id" title="@Model.Title" @featureAttrs>
     <div class="card-poster">
         <img src="@(Model.PosterUrl ?? "/images/poster-fallback.svg")" alt="@Model.Title poster" loading="lazy" width="300" height="450"
              onerror="this.onerror=null;this.src='/images/poster-fallback.svg'" />

@@ -21,6 +21,7 @@ public class DetailsModel : PageModel
         var ct = HttpContext.RequestAborted;
         var movie = await _movies.GetMovieAsync(id, ct);
         if (movie == null) return NotFound();
+        if (!User.Identity!.IsAuthenticated && !await _movies.IsVisibleAsync(id, ct)) return NotFound(); // hidden category (admins can still preview)
         Movie = movie;
 
         if (!string.IsNullOrEmpty(movie.CastJson))
