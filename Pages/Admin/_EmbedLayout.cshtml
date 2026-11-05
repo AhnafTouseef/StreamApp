@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>@(ViewData["Title"]) · MovieHub Admin</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="embed">
+<div class="admin-shell embed-shell">
+    <div class="admin-main embed-main">
+        @if (TempData["Message"] is string ok) { <div class="alert ok" role="status">@ok</div> }
+        @if (TempData["Error"] is string err) { <div class="alert err" role="alert">@err</div> }
+        @RenderBody()
+    </div>
+</div>
+</body>
+</html>

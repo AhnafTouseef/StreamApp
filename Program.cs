@@ -117,7 +117,8 @@ app.UseStatusCodePagesWithReExecute("/Error", "?code={0}");
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
-    ctx.Response.Headers["X-Frame-Options"] = "DENY";
+    // The movie edit page is shown inside a popup (iframe) on the admin Movies list; every other page may not be framed at all.
+    ctx.Response.Headers["X-Frame-Options"] = ctx.Request.Path.StartsWithSegments("/admin/movies/edit") ? "SAMEORIGIN" : "DENY";
     ctx.Response.Headers["Referrer-Policy"] = "same-origin";
     await next();
 });

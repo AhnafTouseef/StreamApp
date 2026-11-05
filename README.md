@@ -77,10 +77,10 @@ seeds the default categories (English, Hindi, Animation, South Indian → Hindi 
 
 ### Categories and navigation
 Navigation is read from the database (Home, your categories with sub-categories, Genres, Search). Add or reorder categories in
-**Admin → Categories**; they appear in the menu and at `/movies/{slug}` immediately, no code change. Deactivating a category hides it.
+**Admin → Library**; they appear in the menu and at `/movies/{slug}` immediately, no code change. Deactivating a category hides it.
 
 ### Sources and the crawler
-A *source* = one directory URL + a category + a scan strategy + a cooldown + optional include/exclude folder lists (admin panel → Sources).
+A *source* = one directory URL + a category + a scan strategy + a cooldown + optional include/exclude folder lists (admin panel → Library).
 
 | Strategy | Meaning |
 |---|---|
@@ -140,14 +140,17 @@ Subtitle tracks embedded inside the video container cannot be shown (extracting 
 *Speed:* a continuous slider from 0.25× to 4× (logarithmic, so 1× sits in the middle) that snaps to round values (0.25, 0.5, 0.75, 1, 1.25 … 4); keys `<` and `>` step through the round values.
 Seek, volume, fullscreen and keyboard shortcuts (space/K, ←/→, ↑/↓, F, M) are included.
 
+### Browse lists
+Category, genre and search lists default to **Most popular** (TMDB popularity; unmatched entries fall to the end). Pick *Recently added*, *Release year*, *Rating* or *Alphabetical* from the Sort dropdown.
+
 ### Home page
 Hero (most popular titles with a backdrop) · *Trending Now* (popular recent releases) · *Popular Movies* · *Top Rated* · *Recommended for You* · then **one slider per category** ("Popular in English Movies", …)
 with that category's most popular recent movies (sub-categories included) and a *See all* link. Sliders have arrows, drag/swipe, snap scrolling and page dots.
 "Recently added" is no longer on the home page (it is still a sort option on every category page). Popularity comes from TMDB; without TMDB data the home page shows *New Releases* and *New in …* sliders instead.
 
 ### Admin panel (`/admin`)
-Dashboard (counts, running scans, recent failures) · Categories · Sources (create, edit, **Test connection** with strategy suggestion, enable/disable, delete) ·
-Scans (history, start, deep scan, retry) · Movies (search, edit fields, TMDB re-match, re-inspect streams, probe the ISP server, remove from catalog).
+Dashboard (counts, running scans, recent failures) · **Library** (categories and their sources together on one page: each category lists its sources; add/edit happens in popup forms; **Test connection** with strategy suggestion, enable/disable, delete) ·
+Scans (history, start, deep scan, retry) · Movies (filter by source and category, search, edit fields, TMDB re-match, re-inspect streams, probe the ISP server, remove from catalog). **Edit opens in a popup** over the list, so your filters and page stay as they are; closing it refreshes the list in place. Ctrl/Shift-click an Edit link to get the full page instead.
 Cookie authentication, antiforgery on every form, PBKDF2 password hashing, 5 failed logins → 5-minute lockout per client.
 Removing a movie only deletes the catalog row — nothing is touched on the ISP server.
 
@@ -174,7 +177,7 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 
 ## Hiding a category
 
-**Hide** on Admin > Categories removes the category from the navigation and hides its movies everywhere: home rows, search, genre lists, the category page and direct
+**Hide** on Admin > Library removes the category from the navigation and hides its movies everywhere: home rows, search, genre lists, the category page and direct
 movie/watch links (these return 404 for visitors; a signed-in admin can still preview). Sub-categories of a hidden category are hidden with it. Nothing is deleted; **Show** brings it all back.
 Direct media URLs for a hidden movie are not separately blocked; the pages that hand out those URLs are.
 
@@ -182,14 +185,14 @@ Direct media URLs for a hidden movie are not separately blocked; the pages that 
 
 Nothing here ever touches the ISP server; only MovieHub's own database changes.
 
-- **Admin > Sources > Clear movies**: removes every movie entry of that source and forgets what was scanned, but keeps the source. Press *Scan now* to index it again from scratch.
-- **Admin > Sources > Delete**: removes the source *and* all of its movie entries (the confirm dialog shows how many).
+- **Admin > Library > source menu > Clear movies**: removes every movie entry of that source and forgets what was scanned, but keeps the source. Press *Scan now* to index it again from scratch.
+- **Admin > Library > source menu > Delete**: removes the source *and* all of its movie entries (the confirm dialog shows how many).
 - **Admin > Movies**: tick entries and press *Delete selected*. With a filter active (source, match status or search text) a *Delete all N matching the filter* button removes every page of results at once. It is hidden without a filter, so the whole catalog cannot be wiped by one click.
 
 ## Changing a source's category
 
 A movie copies its category from its source when it is first indexed. Saving a source with a different category now moves its movies too
-(only those still in the old category; a movie you filed elsewhere by hand stays put). For entries that were misfiled earlier, the Sources list
+(only those still in the old category; a movie you filed elsewhere by hand stays put). For entries that were misfiled earlier, the Library page
 shows "N of its movies are filed under a different category" with a **Move them to ...** button.
 
 ## FFmpeg inside the project
@@ -215,7 +218,7 @@ the tools go with it. The binaries are git-ignored, so they are not committed.
   Queries were written to be SQLite-translatable (no client-side evaluation tricks, `LIKE` with escaping, simple projections), but that is unverified —
   if a page throws an "could not be translated" error, the log names the query.
 - The ISP servers were not reachable from the sandbox. The h5ai/nginx parser was tested against realistic h5ai-style fallback tables and nginx autoindex output,
-  not against your actual servers. Use **Admin → Sources → Test** first and read the suggested strategy; the second server (`DHAKA-FLIX-7/English Movies/`)
+  not against your actual servers. Use **Admin → Library → source menu → Test connection** first and read the suggested strategy; the second server (`DHAKA-FLIX-7/English Movies/`)
   is configured as `Auto` precisely because its layout is unknown — inspect it before trusting the guess.
 - The initial import of a year-based source walks every year (see above) and can take hours on a large server.
 - Remux seeking restarts ffmpeg at the requested time; with copied video it snaps to the previous keyframe.

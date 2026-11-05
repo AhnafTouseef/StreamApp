@@ -383,3 +383,92 @@ dialog.modal[open] { display: flex; flex-direction: column; }
 .modal-x:hover { color: var(--text, #fff); }
 .modal-body { padding: 18px; overflow-y: auto; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line); }
+
+/* =====================================================================
+   Admin redesign: sleeker controls and the merged Library page.
+   Everything is scoped to .admin-shell so the public site keeps its own buttons.
+   ===================================================================== */
+.admin-shell .btn { gap: 7px; padding: 9px 16px; border-radius: 10px; font-weight: 600; font-size: .88rem; line-height: 1.1; letter-spacing: .01em;
+  border: 1px solid transparent; cursor: pointer; white-space: nowrap; user-select: none;
+  transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s, transform .08s; }
+.admin-shell .btn:hover { transform: none; }
+.admin-shell .btn:active { transform: translateY(1px); }
+.admin-shell .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.admin-shell .btn[disabled], .admin-shell .btn:disabled { opacity: .42; cursor: not-allowed; box-shadow: none; transform: none; }
+.admin-shell .btn-sm { padding: 6px 11px; font-size: .8rem; border-radius: 8px; }
+
+.admin-shell .btn-primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: #1c1203;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 6px 18px -8px rgba(242,169,59,.75); }
+.admin-shell .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #ffd78c, var(--accent-2)); box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 8px 22px -8px rgba(242,169,59,.9); }
+
+.admin-shell .btn-ghost { background: rgba(255,255,255,.04); border-color: var(--line); color: var(--text); }
+.admin-shell .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.09); border-color: #3a4152; }
+
+.admin-shell .btn-danger { background: rgba(255,107,107,.10); border-color: rgba(255,107,107,.28); color: var(--danger); }
+.admin-shell .btn-danger:hover:not(:disabled) { background: rgba(255,107,107,.2); border-color: rgba(255,107,107,.5); }
+
+.admin-shell .btn-icon { padding-inline: 10px; letter-spacing: 0; font-size: 1rem; line-height: 1; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent-2); cursor: pointer; font-weight: 600; }
+.link-btn:hover { text-decoration: underline; }
+
+/* sidebar */
+.admin-side a.item { display: flex; align-items: center; padding: 9px 12px; border-radius: 10px; font-weight: 500; transition: background-color .15s, color .15s; position: relative; }
+.admin-side a.item.is-active { background: rgba(242,169,59,.12); color: var(--accent-2); }
+.admin-side a.item.is-active::before { content: ""; position: absolute; left: -14px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.admin-side .btn { width: 100%; justify-content: center; }
+
+/* page header */
+.page-sub { max-width: 62ch; margin: 4px 0 0; font-size: .9rem; }
+.head-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.page-head { align-items: flex-start; margin-bottom: 18px; }
+
+/* ⋯ dropdown (named 'kebab' so it cannot collide with the player's .menu) */
+details.kebab { position: relative; display: inline-block; }
+details.kebab > summary { list-style: none; }
+details.kebab > summary::-webkit-details-marker { display: none; }
+details.kebab[open] > summary { background: rgba(255,255,255,.12); border-color: #3a4152; }
+.kebab-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 210px; padding: 6px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--bg-3); box-shadow: 0 18px 50px rgba(0,0,0,.55); display: flex; flex-direction: column; gap: 2px; }
+.kebab-pop form { display: block; margin: 0; }
+.kebab-item { width: 100%; text-align: left; background: none; border: 0; padding: 8px 11px; border-radius: 8px; color: var(--text); font-size: .86rem; cursor: pointer; }
+.kebab-item:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+.kebab-item:disabled { opacity: .4; cursor: not-allowed; }
+.kebab-item.is-danger { color: var(--danger); }
+.kebab-item.is-danger:hover:not(:disabled) { background: rgba(255,107,107,.14); }
+.kebab-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+/* library */
+.lib-cat { margin: 0 0 18px; margin-left: calc(var(--depth, 0) * 26px); padding-left: calc(var(--depth, 0) * 14px); border-left: 2px solid transparent; }
+.lib-cat[style*="--depth:0"] { border-left-color: transparent; }
+.lib-cat:not([style*="--depth:0"]) { border-left-color: var(--line); }
+.lib-cat.is-hidden .lib-title h2, .lib-cat.is-hidden .table-wrap { opacity: .55; }
+.lib-cat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
+.lib-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.lib-title h2 { margin: 0; font-size: 1.15rem; }
+.lib-title .slug { color: var(--muted); font-size: .8rem; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.lib-title .slug:hover { color: var(--accent-2); }
+.lib-title .count { font-size: .82rem; }
+.chip-off { background: rgba(255,107,107,.12); color: var(--danger); border: 1px solid rgba(255,107,107,.3); padding: 1px 9px; border-radius: 999px; font-size: .72rem; font-weight: 700; }
+.lib-empty { margin: 0 0 4px; padding: 14px 16px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: .9rem; }
+.lib-sources td { vertical-align: middle; }
+.lib-sources .actions { flex-wrap: nowrap; justify-content: flex-end; }
+.warn-line { margin-top: 4px; font-size: .78rem; color: var(--accent-2); }
+.empty-card { padding: 34px; text-align: center; border: 1px dashed var(--line); border-radius: 14px; background: var(--bg-2); }
+.empty-card h3 { margin-bottom: 6px; }
+
+/* modal footer buttons + form polish */
+.admin-shell dialog.modal .btn { min-width: 92px; justify-content: center; }
+.admin-shell .field input:focus, .admin-shell .field select:focus, .admin-shell .field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(242,169,59,.18); }
+.admin-shell .filters select, .admin-shell .filters input[type=search] { padding: 8px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-2); }
+.bulk-bar .btn { flex: none; }
+/* the ⋯ dropdown of a source row must not be clipped by the table's scroll container (wide screens) */
+@media (min-width: 901px) { .lib-cat .table-wrap { overflow: visible; } }
+
+/* movie edit popup (iframe) */
+dialog.modal-wide { width: min(1000px, calc(100vw - 32px)); height: min(90vh, 980px); }
+dialog.modal-wide[open] { display: flex; flex-direction: column; }
+.edit-frame { flex: 1; width: 100%; border: 0; background: var(--bg); border-radius: 0 0 var(--radius) var(--radius); }
+body.embed { min-height: 0; display: block; background: var(--bg); }
+.embed-shell { display: block; min-height: 0; }
+.embed-main { padding: 18px 22px 30px; }
+.embed-main h1 { font-size: 1.35rem; }

@@ -2,7 +2,7 @@
 @{
     var q = new Dictionary<string, string?>
     {
-        ["q"] = Model.Query, ["genre"] = Model.Genre, ["year"] = Model.Year?.ToString(), ["sort"] = Model.Sort == "recent" ? null : Model.Sort
+        ["q"] = Model.Query, ["genre"] = Model.Genre, ["year"] = Model.Year?.ToString(), ["sort"] = Model.Sort == "popular" ? null : Model.Sort
     };
 }
 @if (Model.Tabs.Count > 0)

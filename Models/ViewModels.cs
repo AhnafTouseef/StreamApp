@@ -48,7 +48,7 @@ public sealed class BrowseRequest
     public string? Query { get; set; }
     public string? GenreSlug { get; set; }
     public int? Year { get; set; }
-    public string Sort { get; set; } = "recent";
+    public string Sort { get; set; } = "popular";
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 36;
 }
@@ -105,7 +105,7 @@ public sealed class BrowseViewModel
     public string? Query { get; set; }
     public string? Genre { get; set; }
     public int? Year { get; set; }
-    public string Sort { get; set; } = "recent";
+    public string Sort { get; set; } = "popular";
     public bool ShowQuery { get; set; } = true;
     public string QueryPlaceholder { get; set; } = "Search in this list";
     public List<BrowseTab> Tabs { get; set; } = new();

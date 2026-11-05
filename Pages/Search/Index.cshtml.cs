@@ -32,10 +32,10 @@ public class IndexModel : PageModel
         {
             BasePath = "/search",
             Result = active
-                ? await _movies.BrowseAsync(new BrowseRequest { Query = q, CategoryIds = ids, GenreSlug = genre, Year = year, Sort = sort ?? "recent", Page = page }, ct)
+                ? await _movies.BrowseAsync(new BrowseRequest { Query = q, CategoryIds = ids, GenreSlug = genre, Year = year, Sort = sort ?? "popular", Page = page }, ct)
                 : new PagedResult<MovieCardDto>(),
             Facets = await _movies.GetFacetsAsync(ids, ct),
-            Query = q, Genre = genre, Year = year, Sort = sort ?? "recent",
+            Query = q, Genre = genre, Year = year, Sort = sort ?? "popular",
             ShowQuery = false,
             EmptyTitle = "No results", EmptyMessage = "Nothing matched. Check the spelling or try a shorter title."
         };

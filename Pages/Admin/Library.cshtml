@@ -1,0 +1,175 @@
+@page "/admin/library"
+@model MovieHub.Pages.Admin.LibraryModel
+@{
+    ViewData["Title"] = "Library"; ViewData["Active"] = "library";
+    var cat = Model.Cat; var src = Model.Src;
+    var openCat = Model.OpenDialog == "category"; var openSrc = Model.OpenDialog == "source";
+}
+<div class="page-head">
+    <div>
+        <h1>Library</h1>
+        <p class="muted page-sub">Categories and the sources that fill them, in one place. Add a category, then give it one or more sources; only registered, enabled sources are ever contacted.</p>
+    </div>
+    <div class="head-actions">
+        <button class="btn btn-ghost" type="button" data-open="category-dialog">+ Category</button>
+        <button class="btn btn-primary" type="button" data-open="source-dialog">+ Source</button>
+    </div>
+</div>
+
+@if (Model.TestResult != null)
+{
+    <div class="alert @(Model.TestResult.Success ? "ok" : "err")">
+        <strong>Connection test: @Model.TestResult.Message</strong>
+        @if (Model.TestResult.Suggestion != null) { <div>Suggested strategy: <b>@Model.TestResult.Suggestion.Strategy</b> — @Model.TestResult.Suggestion.Reason</div> }
+        @if (Model.TestResult.Sample.Count > 0) { <div class="muted mono" style="margin-top:6px">@string.Join(" · ", Model.TestResult.Sample)</div> }
+    </div>
+}
+
+@if (Model.Tree.Count == 0)
+{
+    <div class="empty-card">
+        <h3>Nothing here yet</h3>
+        <p class="muted">Start by creating a category (for example “English Movies”), then add the source directory that feeds it.</p>
+        <button class="btn btn-primary" type="button" data-open="category-dialog">+ Category</button>
+    </div>
+}
+
+@foreach (var node in Model.Tree)
+{
+    var c = node.Category;
+    <section class="lib-cat @(node.Shown ? "" : "is-hidden")" style="--depth:@node.Depth">
+        <header class="lib-cat-head">
+            <div class="lib-title">
+                <h2>@c.Name</h2>
+                <a class="slug" href="/movies/@c.Slug" target="_blank" rel="noopener">/movies/@c.Slug</a>
+                @if (!c.IsActive) { <span class="chip chip-off">Hidden</span> }
+                else if (node.HiddenByParent) { <span class="chip chip-off" title="A parent category is hidden">Hidden via parent</span> }
+                <span class="muted count">@node.MovieCount.ToString("N0") movies</span>
+            </div>
+            <div class="actions">
+                <button class="btn btn-ghost btn-sm" type="button" data-open="source-dialog" data-preset="Src.CategoryId=@c.Id">+ Source</button>
+                <button class="btn btn-ghost btn-sm" type="button" data-open="category-dialog" data-preset="Cat.ParentCategoryId=@c.Id">+ Sub-category</button>
+                <a class="btn btn-ghost btn-sm" href="/admin/library?editCategory=@c.Id">Edit</a>
+                <details class="kebab">
+                    <summary class="btn btn-ghost btn-sm btn-icon" aria-label="More">⋯</summary>
+                    <div class="kebab-pop">
+                        <form method="post" asp-page-handler="ToggleCategory" asp-route-id="@c.Id"><button class="kebab-item" type="submit">@(c.IsActive ? "Hide from the site" : "Show on the site")</button></form>
+                        <form method="post" asp-page-handler="DeleteCategory" asp-route-id="@c.Id" onsubmit="return confirm('Delete this category? (Only possible while it has no sources, sub-categories or movies.)')"><button class="kebab-item is-danger" type="submit">Delete category</button></form>
+                    </div>
+                </details>
+            </div>
+        </header>
+
+        @if (node.Sources.Count == 0)
+        {
+            <p class="lib-empty muted">No sources yet. <button class="link-btn" type="button" data-open="source-dialog" data-preset="Src.CategoryId=@c.Id">Add one</button> to start filling this category.</p>
+        }
+        else
+        {
+            <div class="table-wrap"><table class="data lib-sources">
+                <thead><tr><th>Source</th><th>Strategy</th><th>Last success (UTC)</th><th>Status</th><th>Movies</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var ls in node.Sources)
+                {
+                    var s = ls.Source;
+                    var running = Model.Running.TryGetValue(s.Id, out var p) ? p : null;
+                    <tr>
+                        <td>
+                            <strong>@s.Name</strong><br /><span class="mono muted truncate" title="@s.RootUrl">@s.RootUrl</span>
+                            @if (ls.Misfiled > 0) { <div class="warn-line">@ls.Misfiled.ToString("N0") of its movies are filed under a different category. Use ⋯ › “Move movies here”.</div> }
+                        </td>
+                        <td>@s.ScanStrategy</td>
+                        <td>@(s.LastSuccessfulScan?.ToString("yyyy-MM-dd HH:mm") ?? "never")</td>
+                        <td>
+                            @if (running != null) { <span class="status Running">@running.Phase @(running.Total > 0 ? $"{running.Processed}/{running.Total}" : "")</span> }
+                            else if (!s.IsEnabled) { <span class="status">Disabled</span> }
+                            else if (s.LastScanStatus.HasValue) { <span class="status @s.LastScanStatus">@s.LastScanStatus</span> }
+                            else { <span class="muted">not scanned</span> }
+                            @if (!string.IsNullOrEmpty(s.LastError)) { <div class="muted" style="max-width:260px">@s.LastError</div> }
+                        </td>
+                        <td>@ls.MovieCount.ToString("N0")</td>
+                        <td class="actions">
+                            <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(running != null)">Scan now</button></form>
+                            <a class="btn btn-ghost btn-sm" href="/admin/library?editSource=@s.Id">Edit</a>
+                            <details class="kebab">
+                                <summary class="btn btn-ghost btn-sm btn-icon" aria-label="More">⋯</summary>
+                                <div class="kebab-pop">
+                                    <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" onsubmit="return confirm('A deep scan re-lists every year folder and may take a while. Continue?')"><button class="kebab-item" type="submit" disabled="@(running != null)">Deep scan</button></form>
+                                    <form method="post" asp-page-handler="TestSource" asp-route-id="@s.Id"><button class="kebab-item" type="submit">Test connection</button></form>
+                                    <form method="post" asp-page-handler="ToggleSource" asp-route-id="@s.Id"><button class="kebab-item" type="submit">@(s.IsEnabled ? "Disable crawling" : "Enable crawling")</button></form>
+                                    @if (ls.Misfiled > 0)
+                                    {
+                                        <form method="post" asp-page-handler="SyncCategory" asp-route-id="@s.Id" onsubmit="return confirm('Move all @ls.Misfiled movies of this source into @c.Name? Movies you filed elsewhere by hand are moved too.')"><button class="kebab-item" type="submit">Move movies here (@ls.Misfiled)</button></form>
+                                    }
+                                    <div class="kebab-sep"></div>
+                                    <form method="post" asp-page-handler="ClearSource" asp-route-id="@s.Id" onsubmit="return confirm('Remove the @ls.MovieCount movie entries of this source and forget what was scanned? The source stays, so you can scan it again from scratch.')"><button class="kebab-item is-danger" type="submit" disabled="@(running != null)">Clear movies</button></form>
+                                    <form method="post" asp-page-handler="DeleteSource" asp-route-id="@s.Id" onsubmit="return confirm('Delete this source AND its @ls.MovieCount movie entries? This cannot be undone (the ISP server itself is not touched).')"><button class="kebab-item is-danger" type="submit" disabled="@(running != null)">Delete source</button></form>
+                                </div>
+                            </details>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table></div>
+        }
+    </section>
+}
+
+<dialog id="category-dialog" class="modal" data-return="/admin/library" @(openCat ? "open" : null) @(openCat ? "data-autoopen" : null)>
+    <form method="post" asp-page-handler="SaveCategory" class="modal-form">
+        <div class="modal-head">
+            <h3>@(cat.Id == 0 ? "New category" : "Edit category")</h3>
+            <button type="button" class="modal-x" data-close aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+            @if (openCat) { <div asp-validation-summary="All" class="alert err"></div> }
+            <input type="hidden" asp-for="Cat.Id" />
+            <div class="form-grid">
+                <div class="field"><label asp-for="Cat.Name">Name</label><input asp-for="Cat.Name" required maxlength="120" /></div>
+                <div class="field"><label asp-for="Cat.Slug">Slug (URL)</label><input asp-for="Cat.Slug" maxlength="120" placeholder="generated from the name" /><span class="hint">Lowercase letters, digits and dashes.</span></div>
+                <div class="field"><label asp-for="Cat.ParentCategoryId">Parent category</label>
+                    <select asp-for="Cat.ParentCategoryId">
+                        <option value="">— none (top level) —</option>
+                        @foreach (var c in Model.AllCategories.Where(c => c.Id != cat.Id)) { <option value="@c.Id">@c.Name</option> }
+                    </select></div>
+                <div class="field"><label asp-for="Cat.DisplayOrder">Display order</label><input asp-for="Cat.DisplayOrder" type="number" /></div>
+                <div class="field wide"><label asp-for="Cat.Description">Description</label><textarea asp-for="Cat.Description" maxlength="500"></textarea></div>
+                <div class="field"><label><input type="checkbox" asp-for="Cat.IsActive" /> Active (shown on the site)</label></div>
+            </div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+            <button class="btn btn-primary" type="submit">@(cat.Id == 0 ? "Create category" : "Save changes")</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog id="source-dialog" class="modal" data-return="/admin/library" @(openSrc ? "open" : null) @(openSrc ? "data-autoopen" : null)>
+    <form method="post" asp-page-handler="SaveSource" class="modal-form">
+        <div class="modal-head">
+            <h3>@(src.Id == 0 ? "Register a source" : "Edit source")</h3>
+            <button type="button" class="modal-x" data-close aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+            @if (openSrc) { <div asp-validation-summary="All" class="alert err"></div> }
+            <input type="hidden" asp-for="Src.Id" />
+            <div class="form-grid">
+                <div class="field"><label asp-for="Src.Name">Name</label><input asp-for="Src.Name" required maxlength="200" /></div>
+                <div class="field"><label asp-for="Src.CategoryId">Category</label>
+                    <select asp-for="Src.CategoryId">@foreach (var c in Model.AllCategories) { <option value="@c.Id">@c.Name</option> }</select></div>
+                <div class="field wide"><label asp-for="Src.RootUrl">Root directory URL</label><input asp-for="Src.RootUrl" required placeholder="http://172.16.50.7/DHAKA-FLIX-14/English%20Movies%20(1080p)/" /><span class="hint">An http(s) directory listing (nginx/h5ai). The crawler never leaves this URL.</span></div>
+                <div class="field"><label asp-for="Src.ScanStrategy">Scan strategy</label>
+                    <select asp-for="Src.ScanStrategy" asp-items="Html.GetEnumSelectList<MovieHub.Models.ScanStrategy>()"></select>
+                    <span class="hint"><b>Auto</b>: detect from the listing · <b>YearBased</b>: year folders, only the latest year on routine scans · <b>Flat</b>: each folder is a movie · <b>RecursiveDiscovery</b>: walk the tree, a folder with videos is a movie · <b>ManualFull</b>: like recursive, never scanned automatically.</span></div>
+                <div class="field"><label asp-for="Src.CooldownHours">Cooldown (hours)</label><input asp-for="Src.CooldownHours" type="number" min="1" max="8760" /><span class="hint">Minimum time between automatic scans triggered by page visits. The first scan of a source imports every year folder (newest first, in the background, so it can take a long time on a large server); later routine scans only re-check the latest year.</span></div>
+                <div class="field wide"><label asp-for="Src.IncludedFolders">Included folders (optional, one per line, * and ? allowed)</label><textarea asp-for="Src.IncludedFolders" placeholder="James Bond Collection"></textarea><span class="hint">Year-based sources: year folders are always scanned; other folders (collections) are scanned only when listed here.</span></div>
+                <div class="field wide"><label asp-for="Src.ExcludedFolders">Excluded folders (optional, one per line)</label><textarea asp-for="Src.ExcludedFolders" placeholder="Marvel MCU"></textarea></div>
+                <div class="field"><label><input type="checkbox" asp-for="Src.IsEnabled" /> Crawling enabled</label></div>
+            </div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+            <button class="btn btn-primary" type="submit">@(src.Id == 0 ? "Register source" : "Save changes")</button>
+        </div>
+    </form>
+</dialog>

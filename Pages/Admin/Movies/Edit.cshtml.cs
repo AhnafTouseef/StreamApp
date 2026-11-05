@@ -34,6 +34,9 @@ public class EditModel : AdminPageModel
         _db = db; _metadata = metadata; _inspect = inspect; _log = log;
     }
 
+    /// <summary>True when the page is shown inside the popup on the Movies list (an iframe request, or ?embed=1).</summary>
+    public bool Embed => string.Equals(Request.Headers["Sec-Fetch-Dest"], "iframe", StringComparison.OrdinalIgnoreCase) || Request.Query.ContainsKey("embed");
+
     public Movie Movie { get; private set; } = null!;
     public List<Category> Categories { get; private set; } = new();
     [BindProperty] public MovieInput Input { get; set; } = new();
@@ -183,6 +186,9 @@ public class EditModel : AdminPageModel
             await _db.SaveChangesAsync(HttpContext.RequestAborted);
             Ok($"'{m.Title}' was removed from the catalog. Nothing was deleted on the ISP server. A deep scan can rediscover it.");
         }
+        // Inside the popup there is no list to go back to: tell the list page to close the popup and refresh itself.
+        if (Embed)
+            return Content("<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:system-ui;background:#0a0c10;color:#eceef3;padding:24px\">Removed.<script>parent.postMessage({ moviehub: 'edit-done' }, location.origin);</script>", "text/html");
         return RedirectToPage("/Admin/Movies/Index");
     }
 }

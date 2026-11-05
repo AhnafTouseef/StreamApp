@@ -23,9 +23,9 @@ public class GenreModel : PageModel
         Browse = new BrowseViewModel
         {
             BasePath = $"/genres/{genre.Slug}",
-            Result = await _movies.BrowseAsync(new BrowseRequest { GenreSlug = genre.Slug, Query = q, Year = year, Sort = sort ?? "recent", Page = page }, ct),
+            Result = await _movies.BrowseAsync(new BrowseRequest { GenreSlug = genre.Slug, Query = q, Year = year, Sort = sort ?? "popular", Page = page }, ct),
             Facets = await _movies.GetFacetsAsync(null, ct),
-            Query = q, Genre = genre.Slug, Year = year, Sort = sort ?? "recent",
+            Query = q, Genre = genre.Slug, Year = year, Sort = sort ?? "popular",
             QueryPlaceholder = $"Search {genre.Name} movies",
             EmptyTitle = "No movies", EmptyMessage = "No movies in this genre match the filters."
         };

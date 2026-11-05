@@ -3,9 +3,10 @@
 @using System.Globalization
 @{
     ViewData["Title"] = "Edit " + Model.Movie.Title; ViewData["Active"] = "movies";
+    Layout = Model.Embed ? "_EmbedLayout" : "_AdminLayout";
     var m = Model.Movie;
 }
-<p><a href="/admin/movies">← All movies</a></p>
+@if (!Model.Embed) { <p><a href="/admin/movies">← All movies</a></p> }
 <h1>@m.Title</h1>
 <p class="muted">Match: <span class="status @m.MatchStatus">@m.MatchStatus</span> @(m.TmdbId.HasValue ? $"· TMDB #{m.TmdbId}" : "") @(string.IsNullOrEmpty(m.MatchNote) ? "" : "· " + m.MatchNote)</p>
 

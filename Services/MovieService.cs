@@ -193,13 +193,13 @@ public sealed class MovieService
             }
         }
 
-        IOrderedQueryable<Movie> ordered = (r.Sort ?? "recent").ToLowerInvariant() switch
+        IOrderedQueryable<Movie> ordered = (r.Sort ?? "popular").ToLowerInvariant() switch
         {
-            "popular" => q.OrderByDescending(m => m.Popularity).ThenByDescending(m => m.ReleaseYear).ThenBy(m => EF.Functions.Collate(m.Title, "NOCASE")),
+            "recent" => q.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id),
             "year" => q.OrderByDescending(m => m.ReleaseYear).ThenBy(m => EF.Functions.Collate(m.Title, "NOCASE")),
             "rating" => q.OrderByDescending(m => m.TmdbRating).ThenBy(m => EF.Functions.Collate(m.Title, "NOCASE")),
             "alpha" => q.OrderBy(m => EF.Functions.Collate(m.Title, "NOCASE")).ThenBy(m => m.ReleaseYear),
-            _ => q.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
+            _ => q.OrderByDescending(m => m.Popularity).ThenByDescending(m => m.ReleaseYear).ThenBy(m => EF.Functions.Collate(m.Title, "NOCASE"))   // "popular" is the default
         };
 
         var pageSize = Math.Clamp(r.PageSize, 6, 120);

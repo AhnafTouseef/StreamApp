@@ -4,13 +4,14 @@
 <h1>Movies</h1>
 <form class="filters" method="get">
     <input type="search" name="q" value="@Model.Q" placeholder="Title or folder name" />
-    <select name="source"><option value="">All sources</option>@foreach (var s in Model.Sources) { <option value="@s.Id" selected="@(Model.Source == s.Id)">@s.Name</option> }</select>
-    <select name="match"><option value="">Any match status</option>@foreach (var st in Enum.GetValues<MatchStatus>()) { <option value="@st" selected="@(Model.Match == st)">@st</option> }</select>
+    <select name="category" aria-label="Category"><option value="">All categories</option>@foreach (var (c, depth) in Model.CategoryOptions) { <option value="@c.Id" selected="@(Model.Category == c.Id)">@(new string('\u00A0', depth * 3) + (depth > 0 ? "↳ " : ""))@c.Name</option> }</select>
+    <select name="source" aria-label="Source"><option value="">All sources</option>@foreach (var s in Model.Sources) { <option value="@s.Id" selected="@(Model.Source == s.Id)">@s.Name</option> }</select>
+    <select name="match" aria-label="Match status"><option value="">Any match status</option>@foreach (var st in Enum.GetValues<MatchStatus>()) { <option value="@st" selected="@(Model.Match == st)">@st</option> }</select>
     <button class="btn btn-primary btn-sm" type="submit">Filter</button>
     <span class="result-count">@Model.Total.ToString("N0") entries</span>
 </form>
 <form method="post" asp-page-handler="DeleteSelected" id="bulk">
-<input type="hidden" name="q" value="@Model.Q" /><input type="hidden" name="source" value="@Model.Source" /><input type="hidden" name="match" value="@Model.Match" /><input type="hidden" name="pageNo" value="@Model.PageNo" />
+<input type="hidden" name="q" value="@Model.Q" /><input type="hidden" name="source" value="@Model.Source" /><input type="hidden" name="category" value="@Model.Category" /><input type="hidden" name="match" value="@Model.Match" /><input type="hidden" name="pageNo" value="@Model.PageNo" />
 <div class="bulk-bar">
     <button class="btn btn-danger btn-sm" type="submit" onclick="return document.querySelectorAll('#bulk .pick:checked').length > 0 && confirm('Remove the ticked entries from the catalog?')">Delete selected</button>
     @if (Model.HasFilter && Model.Total > 0)
@@ -20,24 +21,32 @@
     <span class="muted">Only the catalog is changed; the ISP server is never touched.</span>
 </div>
 <div class="table-wrap"><table class="data">
-    <thead><tr><th><input type="checkbox" aria-label="Select all on this page" onclick="document.querySelectorAll('#bulk .pick').forEach(c => c.checked = this.checked)" /></th><th>Title</th><th>Year</th><th>Folder</th><th>Source</th><th>TMDB</th><th>Match</th><th>Files</th><th></th></tr></thead>
+    <thead><tr><th><input type="checkbox" aria-label="Select all on this page" onclick="document.querySelectorAll('#bulk .pick').forEach(c => c.checked = this.checked)" /></th><th>Title</th><th>Year</th><th>Folder</th><th>Category</th><th>Source</th><th>TMDB</th><th>Match</th><th>Files</th><th></th></tr></thead>
     <tbody>
     @foreach (var m in Model.Items)
     {
         <tr>
             <td><input type="checkbox" class="pick" name="ids" value="@m.Id" aria-label="Select @m.Title" /></td>
-            <td><a href="/admin/movies/edit/@m.Id">@m.Title</a></td><td>@m.Year</td>
+            <td><a href="/admin/movies/edit/@m.Id" data-edit>@m.Title</a></td><td>@m.Year</td>
             <td><span class="truncate muted" title="@m.FolderName">@m.FolderName</span></td>
-            <td>@m.SourceName</td><td>@m.TmdbId</td>
+            <td>@m.CategoryName</td><td>@m.SourceName</td><td>@m.TmdbId</td>
             <td><span class="status @m.Match">@m.Match</span></td><td>@m.Files</td>
             <td class="actions">
-                <a class="btn btn-ghost btn-sm" href="/admin/movies/edit/@m.Id">Edit</a>
+                <a class="btn btn-ghost btn-sm" href="/admin/movies/edit/@m.Id" data-edit>Edit</a>
                 <a class="btn btn-ghost btn-sm" href="/movie/@m.Id" target="_blank" rel="noopener">View</a>
             </td>
         </tr>
     }
-    @if (Model.Items.Count == 0) { <tr><td colspan="9" class="muted">No entries match.</td></tr> }
+    @if (Model.Items.Count == 0) { <tr><td colspan="10" class="muted">No entries match.</td></tr> }
     </tbody>
 </table></div>
 </form>
 <partial name="_Pagination" model="@("/admin/movies", (IDictionary<string, string?>)Model.QueryMap, Model.PageNo, Model.Pages)" />
+
+<dialog id="edit-dialog" class="modal modal-wide" aria-label="Edit catalog entry">
+    <div class="modal-head">
+        <h3 id="edit-title">Edit entry</h3>
+        <button type="button" class="modal-x" data-close aria-label="Close">×</button>
+    </div>
+    <iframe id="edit-frame" class="edit-frame" title="Edit catalog entry"></iframe>
+</dialog>
