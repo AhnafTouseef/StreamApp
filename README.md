@@ -132,10 +132,11 @@ Browsers other than Safari cannot switch tracks themselves, so when the English 
 with that track (video is copied when it is H.264, otherwise re-encoded; audio becomes stereo AAC). Safari switches natively. If ffmpeg is missing the menu lists the tracks read-only and says why.
 
 *Subtitles:* drawn by the player itself, so they work after audio switches and seeks. **CC menu → pick a file, or Off** (key `C` toggles). External `.srt/.vtt/.ass/.ssa` files next to the movie are offered automatically.
-**Drag and drop** any subtitle file onto the video (or use *Load subtitle file…*) — encodings UTF-8/UTF-16/Windows-1252 are handled, HTML/ASS markup is never executed.
+**Subtitles inside the video file** (MKV/MP4 text tracks: SubRip, ASS/SSA, mov_text, WebVTT) load by themselves: when the player opens, the server lets ffmpeg read the file once, converts every text track to WebVTT and saves it in `cache/subtitles/` (setting `Media:SubtitleCacheDirectory`). The CC menu shows them as "English (in video)" with a "preparing…" note the first time; afterwards they are instant. Subtitles switch on by themselves when the movie will not play with English audio, or when you left them on for the previous movie; otherwise they are listed and off. Needs ffmpeg. Image-based tracks (Blu-ray PGS, DVD) cannot be converted to text, so the menu just says so.
+**Drag and drop** is only the fallback for movies with no usable subtitles (or other languages): any subtitle file onto the video, or *Load subtitle file…* — encodings UTF-8/UTF-16/Windows-1252 are handled, HTML/ASS markup is never executed.
 **Timing & size** panel (CC menu, or the *Adjust timing* button after a drop): ±0.1 s / ±1 s steps and a ±60 s slider (keys `G` earlier / `H` later), **Sync** (pause when you hear a line start; the closest
 subtitle line is aligned to that moment), frame-rate fix presets (23.976 / 24 / 25 fps) for subtitles that drift, and size. Timing is remembered per movie and subtitle file in your browser.
-Subtitle tracks embedded inside the video container cannot be shown (extracting them would mean reading the whole movie file, which this project never does).
+The first extraction reads the whole video once from the ISP server (one at a time; `Media:MaxSubtitleExtractions`, timeout `Media:SubtitleExtractTimeoutMinutes`). You can delete `cache/subtitles` at any time; it is rebuilt when needed.
 
 *Speed:* a continuous slider from 0.25× to 4× (logarithmic, so 1× sits in the middle) that snaps to round values (0.25, 0.5, 0.75, 1, 1.25 … 4); keys `<` and `>` step through the round values.
 Seek, volume, fullscreen and keyboard shortcuts (space/K, ←/→, ↑/↓, F, M) are included.
@@ -149,6 +150,7 @@ with that category's most popular recent movies (sub-categories included) and a 
 "Recently added" is no longer on the home page (it is still a sort option on every category page). Popularity comes from TMDB; without TMDB data the home page shows *New Releases* and *New in …* sliders instead.
 
 ### Admin panel (`/admin`)
+**Stopping a scan:** while a source is scanning, *Scan now* turns into **Stop scan** (Library and Scans pages). The scan ends within moments and is recorded as *Cancelled*; movies found so far stay, and a category visit will not restart it right away. Press *Scan now* to continue.
 Dashboard (counts, running scans, recent failures) · **Library** (categories and their sources together on one page: each category lists its sources; add/edit happens in popup forms; **Test connection** with strategy suggestion, enable/disable, delete) ·
 Scans (history, start, deep scan, retry) · Movies (filter by source and category, search, edit fields, TMDB re-match, re-inspect streams, probe the ISP server, remove from catalog). **Edit opens in a popup** over the list, so your filters and page stay as they are; closing it refreshes the list in place. Ctrl/Shift-click an Edit link to get the full page instead.
 Cookie authentication, antiforgery on every form, PBKDF2 password hashing, 5 failed logins → 5-minute lockout per client.
@@ -222,6 +224,6 @@ the tools go with it. The binaries are git-ignored, so they are not committed.
   is configured as `Auto` precisely because its layout is unknown — inspect it before trusting the guess.
 - The initial import of a year-based source walks every year (see above) and can take hours on a large server.
 - Remux seeking restarts ffmpeg at the requested time; with copied video it snaps to the previous keyframe.
-- Subtitle tracks embedded inside a container cannot be shown by browsers; only external subtitle files are playable.
+- Image-based embedded subtitles (Blu-ray PGS, DVD VobSub) cannot be shown; text-based embedded and external subtitle files are playable.
 - Browsers can't decode every codec (HEVC/10-bit, AC3/DTS audio, some MKVs). Without ffmpeg configured those files show the error state instead of failing silently.
 - In-memory login throttling resets on restart; the scan gate is per process (single instance only).

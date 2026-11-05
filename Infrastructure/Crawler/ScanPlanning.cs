@@ -130,7 +130,7 @@ public static class ScanDecision
         if (s.LastScanStatus == ScanRunStatus.Running) return false;
         if (s.LastScanStatus == ScanRunStatus.Interrupted) return true;
 
-        if (s.LastScanStatus == ScanRunStatus.Failed && s.LastScanAttempt is { } attempt)
+        if (s.LastScanStatus is ScanRunStatus.Failed or ScanRunStatus.Cancelled && s.LastScanAttempt is { } attempt)   // a scan an admin stopped is not restarted by the next visit either
             return nowUtc - attempt >= TimeSpan.FromMinutes(failureBackoffMinutes);
 
         if (s.LastSuccessfulScan is null) return true;

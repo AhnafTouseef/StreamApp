@@ -34,6 +34,13 @@ public class ScansModel : AdminPageModel
         return RedirectToPage();
     }
 
+    public IActionResult OnPostStop(int id)
+    {
+        if (_scans.Stop(id)) Ok("Stopping the scan…");
+        else Fail("No scan of that source is running.");
+        return RedirectToPage();
+    }
+
     public async Task<IActionResult> OnPostRetryAsync(int id)
     {
         var s = await _db.Sources.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, HttpContext.RequestAborted);

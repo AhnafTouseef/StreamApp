@@ -75,7 +75,7 @@
             <h1>@m.Title @(m.ReleaseYear.HasValue ? $"({m.ReleaseYear})" : "")</h1>
             <div class="muted" id="stream-status">Streaming directly from the source server.</div>
             <div class="muted">@f.FileName</div>
-            <div class="muted small">Tip: drag a subtitle file (.srt, .vtt, .ass) onto the video to use it.</div>
+            <div class="muted small" id="sub-tip" hidden>No subtitles found for this movie: drag a subtitle file (.srt, .vtt, .ass) onto the video to use one.</div>
             @if (m.MediaFiles.Count > 1)
             {
                 <div class="picker" aria-label="Choose file">

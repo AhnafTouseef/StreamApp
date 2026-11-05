@@ -19,6 +19,10 @@ public sealed class ScanProgress
     public bool Deep { get; init; }
     public string Trigger { get; init; } = "";
     public DateTime StartedAt { get; } = DateTime.UtcNow;
+    private volatile bool _stopRequested;
+    /// <summary>True once an admin pressed Stop. Lets the crawler tell "stopped on purpose" from "application shutting down".</summary>
+    public bool StopRequested { get => _stopRequested; set => _stopRequested = value; }
+    internal CancellationTokenSource? Cts { get; set; }
     public int Total { get => _total; set => _total = value; }
     public int Processed => _processed;
     public int Added => _added;
@@ -121,9 +125,18 @@ public sealed class CrawlerService
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            status = ScanRunStatus.Interrupted;
-            error = "Scan was interrupted (application shutting down). It will be retried.";
-            _log.LogWarning("Scan of source {Source} interrupted.", source.Name);
+            if (progress.StopRequested)
+            {
+                status = ScanRunStatus.Cancelled;
+                error = "Stopped by an admin. Movies found before stopping were kept; press Scan now to continue.";
+                _log.LogInformation("Scan of source {Source} stopped by an admin.", source.Name);
+            }
+            else
+            {
+                status = ScanRunStatus.Interrupted;
+                error = "Scan was interrupted (application shutting down). It will be retried.";
+                _log.LogWarning("Scan of source {Source} interrupted.", source.Name);
+            }
         }
         catch (Exception ex)
         {

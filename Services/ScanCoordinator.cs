@@ -47,12 +47,13 @@ public sealed class ScanCoordinator
     /// </summary>
     public bool TryStart(int sourceId, bool deep, string trigger)
     {
-        var progress = new ScanProgress { Deep = deep, Trigger = trigger };
-        if (!_running.TryAdd(sourceId, progress)) return false;
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.ApplicationStopping);
+        var progress = new ScanProgress { Deep = deep, Trigger = trigger, Cts = cts };
+        if (!_running.TryAdd(sourceId, progress)) { cts.Dispose(); return false; }
 
         _ = Task.Run(async () =>
         {
-            var ct = _lifetime.ApplicationStopping;
+            var ct = cts.Token;
             var holdsSlot = false;
             try
             {
@@ -61,7 +62,7 @@ public sealed class ScanCoordinator
                 holdsSlot = true;
                 await _crawler.ScanAsync(sourceId, deep, trigger, progress, ct);
             }
-            catch (OperationCanceledException) { /* shutting down; the history row is marked Interrupted by the crawler or on next start */ }
+            catch (OperationCanceledException) { /* stopped by an admin while queued, or shutting down; a running scan records its own Cancelled / Interrupted row */ }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Unexpected error while scanning source {SourceId}.", sourceId);
@@ -70,8 +71,19 @@ public sealed class ScanCoordinator
             {
                 if (holdsSlot) _global.Release();
                 _running.TryRemove(sourceId, out _);
+                cts.Dispose();
             }
         });
+        return true;
+    }
+
+    /// <summary>Asks a queued or running scan of this source to stop. Returns false when nothing is running. The scan ends within moments and is recorded as Cancelled.</summary>
+    public bool Stop(int sourceId)
+    {
+        if (!_running.TryGetValue(sourceId, out var p)) return false;
+        p.StopRequested = true;
+        p.Phase = "Stopping…";
+        try { p.Cts?.Cancel(); } catch (ObjectDisposedException) { /* it finished just now */ }
         return true;
     }
 

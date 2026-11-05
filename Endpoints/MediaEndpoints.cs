@@ -14,6 +14,7 @@ namespace MovieHub.Endpoints;
 ///   /media/stream/{id}    range-aware pass-through proxy (CORS / mixed-content / blocked direct access); never buffers the file
 ///   /media/remux/{id}     optional ffmpeg pipe for audio-track switching and unsupported containers/codecs
 ///   /media/subtitle/{id}  external subtitle converted to WebVTT and served same-origin (a cross-origin track would be blocked)
+///   /media/embsub/{id}    subtitle tracks stored inside the video: status (starts the one-time extraction) and the cached WebVTT per track
 ///   /media/probe/{id}     admin only: shows what the ISP server actually answers (range support, CORS headers)
 /// </summary>
 public static class MediaEndpoints
@@ -31,6 +32,8 @@ public static class MediaEndpoints
         g.MapMethods("/stream/{fileId:int}", new[] { "GET", "HEAD" }, StreamAsync);
         g.MapGet("/remux/{fileId:int}", RemuxAsync);
         g.MapGet("/subtitle/{id:int}", SubtitleAsync);
+        g.MapGet("/embsub/{fileId:int}", EmbeddedStatusAsync);
+        g.MapGet("/embsub/{fileId:int}/{index:int}", EmbeddedTrackAsync);
         g.MapGet("/probe/{fileId:int}", ProbeAsync).RequireAuthorization();
         g.MapPost("/inspect/{fileId:int}", InspectAsync);
     }
@@ -198,6 +201,32 @@ public static class MediaEndpoints
             log.LogWarning("Subtitle {Url} unavailable: {Message}", sub.Url, ex.Message);
             return Results.StatusCode(502);
         }
+    }
+
+    // ------------------------------------------------------------------ subtitles stored inside the video file
+
+    private static async Task<IResult> EmbeddedStatusAsync(int fileId, HttpContext ctx, IMediaLookup lookup, EmbeddedSubtitleService embedded, SourcePolicy policy)
+    {
+        if (!ctx.Request.Headers.ContainsKey("X-Requested-With")) return Results.BadRequest("Missing header.");   // starts a background job: not for foreign pages
+        var file = await lookup.GetFileAsync(fileId, ctx.RequestAborted);
+        if (file == null) return Results.NotFound();
+        if (!policy.IsAllowed(file.Url)) return Results.StatusCode(403);
+        ctx.Response.Headers["Cache-Control"] = "no-store";
+        return Results.Json(new
+        {
+            tracks = embedded.Describe(file).Select(t => new { index = t.Index, lang = t.Language, title = t.Title, codec = t.Codec, isDefault = t.IsDefault, supported = t.Supported, state = t.State })
+        });
+    }
+
+    private static async Task<IResult> EmbeddedTrackAsync(int fileId, int index, HttpContext ctx, IMediaLookup lookup, EmbeddedSubtitleService embedded)
+    {
+        var file = await lookup.GetFileAsync(fileId, ctx.RequestAborted);
+        var stream = file?.Streams.FirstOrDefault(s => s.Kind == StreamKind.Subtitle && s.Index == index);
+        if (file == null || stream == null || !EmbeddedSubtitleService.IsText(stream.Codec)) return Results.NotFound();   // only tracks the database knows about: the index never becomes part of an arbitrary path
+        var path = embedded.PathFor(file, index);
+        if (!File.Exists(path)) return Results.NotFound();
+        ctx.Response.Headers["Cache-Control"] = "public, max-age=86400";
+        return Results.File(path, "text/vtt; charset=utf-8");
     }
 
     // ------------------------------------------------------------------ on-demand inspection

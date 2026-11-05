@@ -34,6 +34,7 @@
     </div>
 }
 
+<div id="lib-list" data-live="@(Model.Running.Count > 0 ? "1" : null)">
 @foreach (var node in Model.Tree)
 {
     var c = node.Category;
@@ -47,9 +48,7 @@
                 <span class="muted count">@node.MovieCount.ToString("N0") movies</span>
             </div>
             <div class="actions">
-                <button class="btn btn-ghost btn-sm" type="button" data-open="source-dialog" data-preset="Src.CategoryId=@c.Id">+ Source</button>
-                <button class="btn btn-ghost btn-sm" type="button" data-open="category-dialog" data-preset="Cat.ParentCategoryId=@c.Id">+ Sub-category</button>
-                <a class="btn btn-ghost btn-sm" href="/admin/library?editCategory=@c.Id">Edit</a>
+                <a class="btn btn-ghost btn-sm" href="/admin/library?editCategory=@c.Id">Edit category</a>
                 <details class="kebab">
                     <summary class="btn btn-ghost btn-sm btn-icon" aria-label="More">⋯</summary>
                     <div class="kebab-pop">
@@ -62,7 +61,7 @@
 
         @if (node.Sources.Count == 0)
         {
-            <p class="lib-empty muted">No sources yet. <button class="link-btn" type="button" data-open="source-dialog" data-preset="Src.CategoryId=@c.Id">Add one</button> to start filling this category.</p>
+            <p class="lib-empty muted">No sources yet. Use <strong>+ Source</strong> at the top and pick “@c.Name” as its category.</p>
         }
         else
         {
@@ -89,12 +88,19 @@
                         </td>
                         <td>@ls.MovieCount.ToString("N0")</td>
                         <td class="actions">
-                            <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(running != null)">Scan now</button></form>
-                            <a class="btn btn-ghost btn-sm" href="/admin/library?editSource=@s.Id">Edit</a>
+                            @if (running != null)
+                            {
+                                <form method="post" asp-page-handler="Stop" asp-route-id="@s.Id" class="inline"><button class="btn btn-danger btn-sm" type="submit" disabled="@running.StopRequested">@(running.StopRequested ? "Stopping…" : "Stop scan")</button></form>
+                            }
+                            else
+                            {
+                                <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit">Scan now</button></form>
+                            }
+                            <a class="btn btn-ghost btn-sm" href="/admin/library?editSource=@s.Id">Edit source</a>
                             <details class="kebab">
                                 <summary class="btn btn-ghost btn-sm btn-icon" aria-label="More">⋯</summary>
                                 <div class="kebab-pop">
-                                    <form method="post" asp-page="/Admin/Scans" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" onsubmit="return confirm('A deep scan re-lists every year folder and may take a while. Continue?')"><button class="kebab-item" type="submit" disabled="@(running != null)">Deep scan</button></form>
+                                    <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" onsubmit="return confirm('A deep scan re-lists every year folder and may take a while. Continue?')"><button class="kebab-item" type="submit" disabled="@(running != null)">Deep scan</button></form>
                                     <form method="post" asp-page-handler="TestSource" asp-route-id="@s.Id"><button class="kebab-item" type="submit">Test connection</button></form>
                                     <form method="post" asp-page-handler="ToggleSource" asp-route-id="@s.Id"><button class="kebab-item" type="submit">@(s.IsEnabled ? "Disable crawling" : "Enable crawling")</button></form>
                                     @if (ls.Misfiled > 0)
@@ -114,6 +120,7 @@
         }
     </section>
 }
+</div>
 
 <dialog id="category-dialog" class="modal" data-return="/admin/library" @(openCat ? "open" : null) @(openCat ? "data-autoopen" : null)>
     <form method="post" asp-page-handler="SaveCategory" class="modal-form">

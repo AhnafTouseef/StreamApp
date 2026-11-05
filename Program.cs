@@ -67,6 +67,7 @@ services.AddSingleton<OmdbClient>();
 services.AddSingleton<ToolDirectories>();
 services.AddSingleton<FfprobeRunner>();
 services.AddSingleton<FfmpegTool>();
+services.AddSingleton<EmbeddedSubtitleService>();
 services.AddSingleton<MediaInspectionService>();
 services.AddSingleton<InspectionBackfill>();
 services.AddSingleton<FfmpegInstaller>();

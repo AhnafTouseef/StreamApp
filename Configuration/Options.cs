@@ -59,6 +59,11 @@ public sealed class MediaOptions
     public int MaxConcurrentProbes { get; set; } = 2;
     public int MaxFilesProbedPerMovie { get; set; } = 6;
     public int MaxRemuxSessions { get; set; } = 2;
+    /// <summary>Where subtitles extracted from inside video files are cached (WebVTT). Relative to the project folder.</summary>
+    public string SubtitleCacheDirectory { get; set; } = "cache/subtitles";
+    /// <summary>How many files may have their embedded subtitles extracted at the same time (each extraction reads the whole video once).</summary>
+    public int MaxSubtitleExtractions { get; set; } = 1;
+    public int SubtitleExtractTimeoutMinutes { get; set; } = 30;
 }
 
 public sealed class AdminOptions

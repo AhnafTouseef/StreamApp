@@ -11,7 +11,7 @@
     @foreach (var s in Model.Sources)
     {
         var p = Model.Running.TryGetValue(s.Id, out var pr) ? pr : null;
-        var failed = s.LastScanStatus is ScanRunStatus.Failed or ScanRunStatus.Interrupted or ScanRunStatus.Partial;
+        var failed = s.LastScanStatus is ScanRunStatus.Failed or ScanRunStatus.Interrupted or ScanRunStatus.Partial or ScanRunStatus.Cancelled;
         <tr>
             <td><strong>@s.Name</strong>@if (!s.IsEnabled) { <span class="status">Disabled</span> }</td>
             <td>@if (p != null) { <span class="status Running">@p.Phase</span> } else if (s.LastScanStatus.HasValue) { <span class="status @s.LastScanStatus">@s.LastScanStatus</span> } else { <span class="muted">never</span> }</td>
@@ -27,8 +27,15 @@
             <td>@(s.LastSuccessfulScan?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
             <td>@s.CooldownHours h</td>
             <td class="actions">
-                <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(p != null)">Scan now</button></form>
-                <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" class="inline"><button class="btn btn-ghost btn-sm" type="submit" disabled="@(p != null)">Deep scan</button></form>
+                @if (p != null)
+                {
+                    <form method="post" asp-page-handler="Stop" asp-route-id="@s.Id" class="inline"><button class="btn btn-danger btn-sm" type="submit" disabled="@p.StopRequested">@(p.StopRequested ? "Stopping…" : "Stop scan")</button></form>
+                }
+                else
+                {
+                    <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" class="inline"><button class="btn btn-primary btn-sm" type="submit">Scan now</button></form>
+                    <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" class="inline"><button class="btn btn-ghost btn-sm" type="submit">Deep scan</button></form>
+                }
                 @if (failed) { <form method="post" asp-page-handler="Retry" asp-route-id="@s.Id" class="inline"><button class="btn btn-ghost btn-sm" type="submit" disabled="@(p != null)">Retry</button></form> }
             </td>
         </tr>

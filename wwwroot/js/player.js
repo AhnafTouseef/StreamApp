@@ -4,7 +4,8 @@
  *
  * Audio:     files with several audio tracks start with the English one. Browsers other than Safari cannot switch tracks themselves,
  *            so the server remuxes the stream with the wanted track (ffmpeg, auto-detected). Native video.audioTracks is used when it exists.
- * Subtitles: rendered by this script (not by <track>), so they stay correct after a remux restart, can be loaded from a dropped file,
+ * Subtitles: rendered by this script (not by <track>), so they stay correct after a remux restart. Tracks inside the video file are extracted
+ *            by the server once (/media/embsub) and load automatically; a dropped or chosen file is the fallback when a movie has none,
  *            and can be shifted/stretched in time. Server subtitle files and dropped files go through the same parser.
  * Speed:     continuous 0.25x - 4x slider (logarithmic, so 1x sits in the middle) that snaps to round values.
  */
@@ -414,16 +415,19 @@
 
   function trackByKey(k) { return subTracks.filter(function (t) { return t.key === k; })[0] || null; }
 
-  function activate(key) {
+  var userTouched = false;       // once the viewer picks a subtitle (or Off) themselves, nothing is switched on for them any more
+  function activate(key, auto) {
+    if (!auto) { userTouched = true; store.set('mh.subs.on', key ? '1' : '0'); }   // remembered: subtitles you turned on stay on for the next movie
     if (!key) { activeTrack = null; renderSubs(true); renderSubMenu(); refreshTuner(); refreshSubButton(); return; }
     var t = trackByKey(key);
     if (!t) return;
+    if (t.state === 'preparing') { toast('Preparing this subtitle from the video file (first time only). It turns on by itself when ready.'); pendingKey = key; return; }
     activeTrack = t; lastActiveKey = key;
     renderSubMenu(); refreshTuner(); refreshSubButton();
     if (t.cues) { renderSubs(true); kickSubs(); return; }
-    if (t.kind !== 'server') return;
+    if (t.kind !== 'server' && t.kind !== 'embedded') return;
     t.state = 'loading'; renderSubMenu();
-    fetch('/media/subtitle/' + t.id).then(function (r) {
+    fetch(t.kind === 'server' ? '/media/subtitle/' + t.id : t.url).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.arrayBuffer();
     }).then(function (buf) {
@@ -493,6 +497,78 @@
   }
   applySubSize();
 
+  // ---- subtitles stored inside the video file: the server extracts them once (ffmpeg -> WebVTT, cached on disk); they then behave like any other track
+  var LANGS = { eng: 'English', en: 'English', hin: 'Hindi', hi: 'Hindi', ben: 'Bengali', bn: 'Bengali', spa: 'Spanish', es: 'Spanish', fre: 'French', fra: 'French', fr: 'French', ger: 'German', deu: 'German', de: 'German',
+    ita: 'Italian', it: 'Italian', jpn: 'Japanese', ja: 'Japanese', kor: 'Korean', ko: 'Korean', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', ara: 'Arabic', ar: 'Arabic', rus: 'Russian', ru: 'Russian',
+    por: 'Portuguese', pt: 'Portuguese', tur: 'Turkish', tr: 'Turkish', tam: 'Tamil', tel: 'Telugu', mal: 'Malayalam', urd: 'Urdu', kan: 'Kannada', nld: 'Dutch', dut: 'Dutch', pol: 'Polish', swe: 'Swedish', ind: 'Indonesian', tha: 'Thai', vie: 'Vietnamese' };
+  var embInfo = { preparing: false, failed: false, unavailable: false, unsupported: 0 };
+  var pendingKey = null, autoDone = false, embPolls = 0, embTimer = null;
+
+  function isEnglishText(lang, title) {
+    return /(^|[^a-z])(english|eng|en)([^a-z]|$)/i.test((lang || '') + ' ' + (title || ''));
+  }
+  function embLabel(t, n) {
+    var lang = t.lang ? (LANGS[String(t.lang).toLowerCase()] || t.lang) : '';
+    if (/^und$/i.test(lang)) lang = '';
+    var title = t.title || '';
+    var base = title && lang && title.toLowerCase().indexOf(lang.toLowerCase()) >= 0 ? title : [lang, title].filter(Boolean).join(' · ');
+    return (base || 'Subtitle ' + n) + ' (in video)';
+  }
+  function applyEmbedded(tracks) {
+    embInfo = { preparing: false, failed: false, unavailable: false, unsupported: 0 };
+    var n = 0;
+    tracks.forEach(function (e) {
+      n++;
+      if (!e.supported) { embInfo.unsupported++; return; }
+      var key = 'e' + e.index, t = trackByKey(key);
+      var state = e.state === 'ready' ? 'idle' : e.state === 'preparing' ? 'preparing' : 'error';
+      if (e.state === 'failed') embInfo.failed = true;
+      if (e.state === 'unavailable') embInfo.unavailable = true;
+      if (e.state === 'preparing') embInfo.preparing = true;
+      if (!t) {
+        t = { key: key, label: embLabel(e, n), kind: 'embedded', url: '/media/embsub/' + cfg.fileId + '/' + e.index, lang: e.lang, title: e.title, cues: null, offset: 0, scale: 1, state: state };
+        loadTiming(t); subTracks.push(t);
+      } else if (t.state === 'preparing' || t.state === 'error') { t.state = state; }
+    });
+    renderSubMenu();
+    if (pendingKey) { var pt = trackByKey(pendingKey); if (pt && pt.state === 'idle') { var k = pendingKey; pendingKey = null; activate(k, true); } }
+    autoSubtitles();
+  }
+  function bestEnglishTrack() {
+    var c = subTracks.filter(function (t) { return t.kind !== 'file' && t.state !== 'error' && isEnglishText(t.lang || t.label, t.title || t.label); });
+    function rank(t) { var x = (t.title || t.label || '').toLowerCase(); return (/forced|commentary/.test(x) ? 4 : 0) + (/sdh|hearing|cc/.test(x) ? 1 : 0) + (t.kind === 'embedded' ? 0 : 0.5); }
+    c.sort(function (a, b) { return rank(a) - rank(b); });
+    return c[0] || null;
+  }
+  // Subtitles come on by themselves when they will actually be needed: the movie will not be played with English audio, or the viewer left them on last time.
+  function wantSubtitles() {
+    var saved = store.get('mh.subs.on');
+    if (saved === '1') return true;
+    if (saved === '0') return false;
+    var target = audioTracks.filter(function (a) { return a.index === (cfg.preferredAudio != null ? cfg.preferredAudio : currentAudioIndex()); })[0];
+    return !!target && !isEnglishText(target.lang, target.title);
+  }
+  function autoSubtitles() {
+    if (autoDone || userTouched || activeTrack) return;
+    var best = bestEnglishTrack();
+    if (!best) return;
+    if (best.state === 'preparing') return;      // check again when it is ready
+    autoDone = true;
+    if (wantSubtitles()) activate(best.key, true);
+  }
+  function loadEmbedded() {
+    if (embTimer) { clearTimeout(embTimer); embTimer = null; }
+    fetch('/media/embsub/' + cfg.fileId, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) {
+        applyEmbedded(d.tracks || []);
+        if (embInfo.preparing && ++embPolls < 600) embTimer = setTimeout(loadEmbedded, 3000);
+      })
+      .catch(function () { /* the menu still offers file loading */ });
+  }
+  if (cfg.embeddedSubtitles || !cfg.inspected) loadEmbedded();
+  autoSubtitles();
+
   // ---- subtitle menu
   function refreshSubButton() {
     el.btnSub.classList.toggle('is-on', !!activeTrack);
@@ -508,9 +584,14 @@
     });
     item(m, '＋ Load subtitle file…', false, function () { el.file.click(); });
     item(m, '⏱ Timing & size…', false, function () { openTuner(); });
-    if (!subTracks.length) note(m, 'No subtitle files were found next to this movie.');
-    if (cfg.embeddedSubtitles) note(m, cfg.embeddedSubtitles + ' subtitle track(s) are embedded in the video file; browsers cannot show those.');
-    note(m, 'Tip: drag a .srt, .vtt or .ass file onto the video.');
+    var emb = embInfo;
+    if (emb.preparing) note(m, 'Preparing the subtitles inside the video… (first time only; they are saved on the server afterwards)');
+    if (emb.failed) note(m, 'The subtitles inside this video could not be read. You can still load a subtitle file.');
+    if (emb.unavailable) note(m, 'Subtitles inside the video need ffmpeg on the server (Admin › Dashboard › Download FFmpeg).');
+    if (emb.unsupported) note(m, emb.unsupported + ' image-based subtitle track(s) (Blu-ray / DVD style) cannot be turned into text, so they cannot be shown here.');
+    if (!subTracks.length && !emb.preparing && !emb.unsupported && !emb.unavailable) note(m, 'No subtitles found for this movie. Load a .srt, .vtt or .ass file, or drop one onto the video.');
+    var tip = document.getElementById('sub-tip');
+    if (tip) tip.hidden = !!subTracks.length || emb.preparing;
   }
   renderSubMenu();
   refreshSubButton();
@@ -723,7 +804,7 @@
       case 'c': case 'C':
         if (activeTrack) activate(null);
         else if (lastActiveKey || subTracks.length) activate(lastActiveKey || subTracks[0].key);
-        else toast('No subtitles yet: drag a subtitle file onto the video.');
+        else toast(embInfo.preparing ? 'Subtitles from the video are still being prepared.' : 'No subtitles for this movie. Load a subtitle file or drop one onto the video.');
         break;
       case 'g': case 'G': if (activeTrack) { nudge(-0.1); toast('Subtitle timing ' + fmtOffset(activeTrack.offset)); } break;
       case 'h': case 'H': if (activeTrack) { nudge(0.1); toast('Subtitle timing ' + fmtOffset(activeTrack.offset)); } break;
@@ -756,6 +837,7 @@
         cfg.inspected = d.inspected; cfg.inspectionError = d.inspectionError;
         cfg.preferredAudio = d.preferredAudio; cfg.defaultAudio = d.defaultAudio; cfg.embeddedSubtitles = d.embeddedSubtitles;
         cfg.audio = audioTracks = d.audio || [];
+        if (d.embeddedSubtitles) loadEmbedded();
         if (d.videoCodec) cfg.videoCodec = d.videoCodec;
         if (d.audioCodec) cfg.audioCodec = d.audioCodec;
         if (!knownDuration && d.duration) { knownDuration = d.duration; updateTime(); }
