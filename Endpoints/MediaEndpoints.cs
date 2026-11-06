@@ -107,7 +107,7 @@ public static class MediaEndpoints
 
     private static async Task<IResult> RemuxAsync(
         int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
-        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0)
+        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null)
     {
         if (!ffmpeg.IsAvailable)
             return Results.Problem("Server-side audio switching is unavailable: ffmpeg was not found. Install FFmpeg or set Media:FfmpegPath.", statusCode: 501);
@@ -135,7 +135,8 @@ public static class MediaEndpoints
         Process? proc = null;
         try
         {
-            var copyVideo = videoStream?.Codec is "h264" or "avc1";
+            // video=encode: the browser could not show the copied picture (10-bit H.264, odd profiles), so the picture is re-encoded as plain 8-bit H.264.
+            var copyVideo = videoStream?.Codec is "h264" or "avc1" && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
             var psi = new ProcessStartInfo(ffmpeg.Path!)
             {
                 RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true

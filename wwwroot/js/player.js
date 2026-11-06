@@ -34,6 +34,7 @@
   var offset = 0;               // seconds already skipped by the remux stream (-ss)
   var audioIndex = null;        // chosen ffprobe audio stream index (remux mode)
   var triedModes = {};
+  var forceEncode = false;      // the picture of a copied video stream would not show: ask the server to re-encode it
   var loadTimer = null;
   var nativeAudio = false;
   var lazyRemux = false;        // English start needs a remux: it begins on the first Play, so a page view never occupies an ffmpeg slot
@@ -75,6 +76,7 @@
     if (m === 'proxy') return cfg.proxyUrl;
     var q = [];
     if (audioIndex !== null) q.push('audio=' + audioIndex);
+    if (forceEncode) q.push('video=encode');
     if (startAt > 0) q.push('t=' + startAt.toFixed(2));
     return cfg.remuxUrl + (q.length ? '?' + q.join('&') : '');
   }
@@ -94,7 +96,11 @@
     });
   }
 
+  // An https page (e.g. through a Cloudflare tunnel) may not load an http:// source: the browser blocks it silently, so go straight to the server relay.
+  function directUsable() { return !!cfg.directUrl && !(location.protocol === 'https:' && /^http:/i.test(cfg.directUrl)); }
+
   function load(m, startAt, autoplay) {
+    if (m === 'direct' && !directUsable()) m = 'proxy';
     mode = m; triedModes[m] = true;
     offset = m === 'remux' ? (startAt || 0) : 0;
     var src = urlFor(m, startAt || 0);
@@ -130,7 +136,7 @@
     }
 
     var next = null;
-    if (mode === 'direct' && !triedModes.proxy) next = 'proxy';
+    if (mode === 'direct' && !triedModes.proxy && directUsable()) next = 'proxy';
     else if (mode !== 'remux' && cfg.remuxEnabled && !triedModes.remux) next = 'remux';
     if (next) { load(next, at, true); return; }
 
@@ -152,6 +158,30 @@
   function hideMessage() { el.msg.classList.remove('is-on'); }
 
   video.addEventListener('error', function () { onError(); });
+
+  // Some phones accept a file (HEVC, 10-bit) and play the sound but cannot decode the picture, without any error. Detect that and move on to a converted stream.
+  var picCheck = null;
+  function expectsPicture() { return !cfg.inspected || !!cfg.videoCodec; }
+  function noPicture() {
+    if (lazyRemux || !expectsPicture() || video.videoWidth) return;
+    var at = position();
+    if (mode !== 'remux' && cfg.remuxEnabled && !triedModes.remux) {
+      toast('This device cannot show the picture of this file directly. Switching to compatibility mode…');
+      load('remux', at, true);
+    } else if (mode === 'remux' && cfg.remuxEnabled && !forceEncode) {
+      forceEncode = true;
+      toast('Converting the picture for this device…');
+      load('remux', at, true);
+    } else {
+      fail('This device cannot decode the picture of this video (video: ' + (cfg.videoCodec || 'unknown') + '). The sound may still play.');
+    }
+  }
+  function schedulePicCheck() {
+    clearTimeout(picCheck);
+    picCheck = setTimeout(function () { if (!video.paused && video.readyState >= 2 && !video.videoWidth) noPicture(); }, 2500);
+  }
+  video.addEventListener('playing', schedulePicCheck);
+  video.addEventListener('loadedmetadata', function () { if (!video.videoWidth) schedulePicCheck(); });
   video.addEventListener('loadedmetadata', function () {
     clearTimeout(loadTimer);
     player.classList.remove('is-loading');
@@ -217,11 +247,23 @@
 
   function toggleFs() {
     if (document.fullscreenElement) document.exitFullscreen();
-    else if (player.requestFullscreen) player.requestFullscreen();
-    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iOS Safari
+    else if (player.requestFullscreen) {
+      var r = player.requestFullscreen();
+      if (r && r.catch) r.catch(function () { });
+    }
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iOS Safari (its own full screen turns sideways by itself)
+  }
+  // On a phone or tablet, full screen turns the screen to landscape where the browser allows it (Android Chrome and similar; iOS Safari does not allow it).
+  function landscape(on) {
+    try {
+      var so = screen.orientation;
+      if (!so) return;
+      if (on) { if (window.matchMedia('(pointer: coarse)').matches && so.lock) so.lock('landscape').catch(function () { }); }
+      else if (so.unlock) so.unlock();
+    } catch (_) { /* not supported */ }
   }
   el.fs.addEventListener('click', toggleFs);
-  document.addEventListener('fullscreenchange', function () { player.classList.toggle('is-full', !!document.fullscreenElement); });
+  document.addEventListener('fullscreenchange', function () { player.classList.toggle('is-full', !!document.fullscreenElement); landscape(!!document.fullscreenElement); });
 
   // ------------------------------------------------------------ gestures on the picture (touch and mouse)
   //   tap / click ............ play or pause
