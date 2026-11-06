@@ -5,7 +5,7 @@
  * Audio:     files with several audio tracks start with the English one. Browsers other than Safari cannot switch tracks themselves,
  *            so the server remuxes the stream with the wanted track (ffmpeg, auto-detected). Native video.audioTracks is used when it exists.
  * Subtitles: rendered by this script (not by <track>), so they stay correct after a remux restart. Tracks inside the video file are extracted
- *            by the server once (/media/embsub) and load automatically; a dropped or chosen file is the fallback when a movie has none,
+ *            by the server once (/media/embsub), kept in this browser (IndexedDB) and loaded automatically; a dropped or chosen file is the fallback when a movie has none,
  *            and can be shifted/stretched in time. Server subtitle files and dropped files go through the same parser.
  * Speed:     continuous 0.25x - 4x slider (logarithmic, so 1x sits in the middle) that snaps to round values.
  */
@@ -79,6 +79,21 @@
     return cfg.remuxUrl + (q.length ? '?' + q.join('&') : '');
   }
 
+  // Starts playback. A browser may refuse to start a movie with sound before the page was interacted with; then it starts muted (with an Unmute button) instead of staying stopped.
+  function startPlay() {
+    var p = video.play();
+    if (!p || !p.catch) return;
+    p.catch(function (err) {
+      if (err && err.name === 'AbortError') return;                      // a newer load() replaced this attempt
+      if (err && err.name === 'NotAllowedError' && !video.muted) {
+        video.muted = true;
+        video.play().then(function () {
+          toast('Playing muted: your browser blocked sound.', 'Unmute', function () { video.muted = false; });
+        }).catch(function () { video.muted = false; });
+      }
+    });
+  }
+
   function load(m, startAt, autoplay) {
     mode = m; triedModes[m] = true;
     offset = m === 'remux' ? (startAt || 0) : 0;
@@ -91,7 +106,7 @@
     if (m !== 'remux' && startAt > 0) {
       video.addEventListener('loadedmetadata', function once() { video.removeEventListener('loadedmetadata', once); video.currentTime = startAt; });
     }
-    if (autoplay) video.play().catch(function () { /* autoplay blocked: user presses play */ });
+    if (autoplay) startPlay();
     clearTimeout(loadTimer);
     // A server that accepts the connection but never delivers metadata would otherwise spin forever.
     loadTimer = setTimeout(function () { if (video.readyState < 1) onError('timeout'); }, m === 'remux' ? 45000 : 25000);
@@ -153,11 +168,9 @@
   // ------------------------------------------------------------ basic controls
   function togglePlay() {
     if (lazyRemux) { lazyRemux = false; load('remux', 0, true); return; }
-    if (video.paused) video.play().catch(function () {}); else video.pause();
+    if (video.paused) startPlay(); else video.pause();
   }
   el.play.addEventListener('click', togglePlay);
-  video.addEventListener('click', togglePlay);
-  video.addEventListener('dblclick', toggleFs);
   video.addEventListener('play', function () { el.play.textContent = '❚❚'; el.play.setAttribute('aria-label', 'Pause'); });
   video.addEventListener('pause', function () { el.play.textContent = '▶'; el.play.setAttribute('aria-label', 'Play'); player.classList.remove('is-idle'); });
 
@@ -209,6 +222,80 @@
   }
   el.fs.addEventListener('click', toggleFs);
   document.addEventListener('fullscreenchange', function () { player.classList.toggle('is-full', !!document.fullscreenElement); });
+
+  // ------------------------------------------------------------ gestures on the picture (touch and mouse)
+  //   tap / click ............ play or pause
+  //   double tap / click ..... left side: back 10 s · right side: forward 10 s (keep tapping to keep skipping) · middle: fullscreen
+  //   press and hold ......... 2× speed while held, back to the normal speed on release
+  var G = { HOLD_MS: 380, DOUBLE_MS: 280, CHAIN_MS: 600, MOVE: 14, SKIP: 10, HOLD_RATE: 2 };
+  var gDown = null, gHoldTimer = null, gHolding = false, gTapTimer = null, gLastTap = null, gChain = null;
+  var gSkipTimer = null, gSkipPending = 0, gSkipBase = 0, gPointerType = 'mouse';
+  var flashEls = { back: $('flash-back'), fwd: $('flash-fwd') }, holdBadge = $('hold-badge');
+
+  function zoneOf(e) {
+    var r = video.getBoundingClientRect(), x = (e.clientX - r.left) / Math.max(1, r.width);
+    return x < 0.35 ? 'back' : x > 0.65 ? 'fwd' : 'mid';
+  }
+  function flash(zone, text) {
+    var f = flashEls[zone]; if (!f) return;
+    f.querySelector('b').textContent = text;
+    f.classList.remove('is-on'); void f.offsetWidth; f.classList.add('is-on');   // restart the animation
+    clearTimeout(f._t); f._t = setTimeout(function () { f.classList.remove('is-on'); }, 750);
+  }
+  // Several quick skips are added up and applied once: a remux stream has to restart for every seek, so one jump is much cheaper than five.
+  function skip(zone) {
+    if (gSkipPending === 0) gSkipBase = position();
+    gSkipPending += zone === 'fwd' ? G.SKIP : -G.SKIP;
+    flash(zone, Math.abs(gSkipPending) + ' s');
+    clearTimeout(gSkipTimer);
+    gSkipTimer = setTimeout(function () { var t = gSkipBase + gSkipPending; gSkipPending = 0; seekTo(t); }, 350);
+  }
+  function tap(zone) {
+    var now = Date.now();
+    if (zone !== 'mid' && gChain && gChain.zone === zone && now - gChain.t < G.CHAIN_MS) { gChain.t = now; skip(zone); return; }
+    if (gLastTap && now - gLastTap.t < G.DOUBLE_MS && gLastTap.zone === zone) {
+      clearTimeout(gTapTimer); gLastTap = null;
+      if (zone === 'mid') toggleFs(); else { gChain = { zone: zone, t: now }; skip(zone); }
+      return;
+    }
+    gLastTap = { t: now, zone: zone };
+    clearTimeout(gTapTimer);
+    gTapTimer = setTimeout(function () { gLastTap = null; togglePlay(); }, G.DOUBLE_MS);   // waits briefly to see whether a second tap follows
+  }
+  function endHold() {
+    if (!gHolding) return;
+    gHolding = false;
+    video.playbackRate = video.defaultPlaybackRate || 1;      // setRate() keeps defaultPlaybackRate equal to the speed the viewer chose
+    holdBadge.classList.remove('is-on');
+  }
+  video.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    gPointerType = e.pointerType || 'mouse';
+    gDown = { x: e.clientX, y: e.clientY, id: e.pointerId, zone: zoneOf(e), moved: false };
+    try { video.setPointerCapture(e.pointerId); } catch (_) { }
+    clearTimeout(gHoldTimer);
+    gHoldTimer = setTimeout(function () {
+      if (!gDown || gDown.moved || video.paused || video.ended) return;
+      gHolding = true;
+      video.playbackRate = G.HOLD_RATE;
+      holdBadge.classList.add('is-on');
+    }, G.HOLD_MS);
+  });
+  video.addEventListener('pointermove', function (e) {
+    if (gDown && !gDown.moved && Math.hypot(e.clientX - gDown.x, e.clientY - gDown.y) > G.MOVE) { gDown.moved = true; clearTimeout(gHoldTimer); }
+  });
+  function release(cancelled) {
+    if (!gDown) return;
+    var d = gDown; gDown = null; clearTimeout(gHoldTimer);
+    try { video.releasePointerCapture(d.id); } catch (_) { }
+    if (gHolding) { endHold(); return; }                       // a hold is never also a tap
+    if (cancelled || d.moved) return;
+    tap(d.zone);
+  }
+  video.addEventListener('pointerup', function () { release(false); });
+  video.addEventListener('pointercancel', function () { release(true); });
+  video.addEventListener('contextmenu', function (e) { if (gPointerType === 'touch' || gHolding) e.preventDefault(); });   // a long press on a phone must not open the browser menu
+  window.addEventListener('blur', function () { gDown = null; clearTimeout(gHoldTimer); endHold(); });
 
   // ------------------------------------------------------------ menus
   var menus = [[el.btnSub, el.menuSub], [el.btnAudio, el.menuAudio], [el.btnSpeed, el.menuSpeed]];
@@ -427,11 +514,13 @@
     if (t.cues) { renderSubs(true); kickSubs(); return; }
     if (t.kind !== 'server' && t.kind !== 'embedded') return;
     t.state = 'loading'; renderSubMenu();
-    fetch(t.kind === 'server' ? '/media/subtitle/' + t.id : t.url).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.arrayBuffer();
-    }).then(function (buf) {
-      t.cues = parseSubtitle(decodeBytes(buf));
+    var source = t.vtt != null ? Promise.resolve(t.vtt)      // embedded track already kept in this browser
+      : fetch(t.kind === 'server' ? '/media/subtitle/' + t.id : t.url).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
+      }).then(decodeBytes);
+    source.then(function (text) {
+      t.cues = parseSubtitle(text);
       t.state = t.cues.length ? 'idle' : 'error';
       if (!t.cues.length) toast('That subtitle file contains no readable lines.');
     }).catch(function () {
@@ -514,21 +603,31 @@
     var base = title && lang && title.toLowerCase().indexOf(lang.toLowerCase()) >= 0 ? title : [lang, title].filter(Boolean).join(' · ');
     return (base || 'Subtitle ' + n) + ' (in video)';
   }
+  function ensureEmbTrack(e, n, state) {
+    var key = 'e' + e.index, t = trackByKey(key);
+    if (!t) {
+      t = { key: key, label: embLabel(e, n), kind: 'embedded', url: '/media/embsub/' + cfg.fileId + '/' + e.index, lang: e.lang, title: e.title, cues: null, vtt: e.vtt != null ? e.vtt : null, offset: 0, scale: 1, state: state };
+      loadTiming(t); subTracks.push(t);
+    }
+    return t;
+  }
   function applyEmbedded(tracks) {
     embInfo = { preparing: false, failed: false, unavailable: false, unsupported: 0 };
     var n = 0;
     tracks.forEach(function (e) {
       n++;
       if (!e.supported) { embInfo.unsupported++; return; }
-      var key = 'e' + e.index, t = trackByKey(key);
       var state = e.state === 'ready' ? 'idle' : e.state === 'preparing' ? 'preparing' : 'error';
       if (e.state === 'failed') embInfo.failed = true;
       if (e.state === 'unavailable') embInfo.unavailable = true;
       if (e.state === 'preparing') embInfo.preparing = true;
-      if (!t) {
-        t = { key: key, label: embLabel(e, n), kind: 'embedded', url: '/media/embsub/' + cfg.fileId + '/' + e.index, lang: e.lang, title: e.title, cues: null, offset: 0, scale: 1, state: state };
-        loadTiming(t); subTracks.push(t);
-      } else if (t.state === 'preparing' || t.state === 'error') { t.state = state; }
+      var existed = !!trackByKey('e' + e.index);
+      var t = ensureEmbTrack(e, n, state);
+      if (existed) {
+        if (e.vtt != null) { t.vtt = e.vtt; if (t.cues) t.cues = parseSubtitle(e.vtt); }   // the complete file replaces the stretch read so far
+        if (t.cues && t.state !== 'loading') t.state = 'idle';
+        else if (t.state === 'preparing' || t.state === 'error') t.state = state;
+      }
     });
     renderSubMenu();
     if (pendingKey) { var pt = trackByKey(pendingKey); if (pt && pt.state === 'idle') { var k = pendingKey; pendingKey = null; activate(k, true); } }
@@ -556,15 +655,161 @@
     autoDone = true;
     if (wantSubtitles()) activate(best.key, true);
   }
+  // The browser keeps extracted subtitles in IndexedDB, so the server only extracts a movie's embedded subtitles once per viewer and never stores them.
+  var DB_NAME = 'moviehub', DB_STORE = 'embsubs', DB_CAP = 300, cacheKey = 'f' + cfg.fileId;
+  function idb() {
+    return new Promise(function (res) {
+      try {
+        var r = indexedDB.open(DB_NAME, 2);
+        r.onupgradeneeded = function () {
+          var st = r.result.objectStoreNames.contains(DB_STORE) ? r.transaction.objectStore(DB_STORE) : r.result.createObjectStore(DB_STORE, { keyPath: 'k' });
+          if (!st.indexNames.contains('at')) st.createIndex('at', 'at');
+        };
+        r.onsuccess = function () { var db = r.result; db.onversionchange = function () { db.close(); }; res(db); };   // lets another tab upgrade the database
+        r.onerror = r.onblocked = function () { res(null); };
+      } catch (e) { res(null); }          // private window or storage blocked: everything still works, just without the local copy
+    });
+  }
+  function idbGet(k) {
+    return idb().then(function (db) {
+      if (!db) return null;
+      return new Promise(function (res) {
+        try { var q = db.transaction(DB_STORE).objectStore(DB_STORE).get(k); q.onsuccess = function () { res(q.result || null); }; q.onerror = function () { res(null); }; }
+        catch (e) { res(null); }
+      });
+    });
+  }
+  function idbPut(v) {
+    return idb().then(function (db) {
+      if (!db) return;
+      return new Promise(function (res) {
+        try { var tx = db.transaction(DB_STORE, 'readwrite'); tx.objectStore(DB_STORE).put(v); tx.oncomplete = tx.onerror = tx.onabort = function () { res(); }; }
+        catch (e) { res(); }
+      });
+    });
+  }
+  // Keeps the browser's copy bounded: when more than DB_CAP movies are stored, the ones opened longest ago go first.
+  function idbTrim() {
+    return idb().then(function (db) {
+      if (!db) return;
+      return new Promise(function (res) {
+        try {
+          var tx = db.transaction(DB_STORE, 'readwrite'), st = tx.objectStore(DB_STORE), cq = st.count();
+          cq.onsuccess = function () {
+            var extra = cq.result - DB_CAP;
+            if (extra <= 0) return;
+            var cur = st.index('at').openCursor();
+            cur.onsuccess = function () { var c = cur.result; if (c && extra-- > 0) { c.delete(); c.continue(); } };
+          };
+          tx.oncomplete = tx.onerror = tx.onabort = function () { res(); };
+        } catch (e) { res(); }
+      });
+    });
+  }
+  function keepStorage() { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { } }
+
+  // Subtitles appear within seconds: the server reads just the stretch around the playhead straight out of the file (like a desktop player would),
+  // while the complete extraction runs in the background. Time ranges already read are remembered, so only a jump to somewhere new asks again.
+  var embCover = [], embBusy = false, embFull = false, embWindowOn = false, embNoText = false, embWinFails = 0, embTick = 0;
+  var WIN_LEN = 600, WIN_BACK = 30, WIN_AHEAD_MIN = 90;
+  function addCover(a, b) {
+    embCover.push([a, b]); embCover.sort(function (x, y) { return x[0] - y[0]; });
+    var out = [];
+    embCover.forEach(function (r) { var l = out[out.length - 1]; if (l && r[0] <= l[1] + 1) l[1] = Math.max(l[1], r[1]); else out.push([r[0], r[1]]); });
+    embCover = out;
+  }
+  function coverAhead(p) {
+    for (var i = 0; i < embCover.length; i++) if (embCover[i][0] <= p && embCover[i][1] > p) return embCover[i][1] - p;
+    return 0;
+  }
+  function addCues(t, list) {
+    var seen = t.seen || (t.seen = {}), out = t.cues || [];
+    list.forEach(function (c) {
+      var k = c.start.toFixed(2) + '|' + c.end.toFixed(2) + '|' + c.text;
+      if (!seen[k]) { seen[k] = 1; out.push(c); }
+    });
+    out.sort(function (a, b) { return a.start - b.start; });
+    t.cues = out;
+  }
+  function applyWindow(d) {
+    var tracks = d.tracks || [], from = +d.from || 0, n = 0, got = false;
+    tracks.forEach(function (e) {
+      n++;
+      if (!e.supported) return;
+      var t = ensureEmbTrack(e, n, 'idle');
+      if (e.vtt == null || embFull || t.vtt != null) return;      // nothing read, or the complete subtitle is already here
+      var cues = parseSubtitle(e.vtt).map(function (c) { return { start: c.start + from, end: c.end + from, text: c.text }; });
+      addCues(t, cues);
+      if (t.state === 'preparing' || t.state === 'error') t.state = 'idle';
+      got = true;
+    });
+    if (!tracks.some(function (e) { return e.supported; })) embNoText = true;
+    if (got || tracks.length) addCover(from, from + (+d.length || WIN_LEN));
+    renderSubMenu();
+    if (pendingKey) { var pt = trackByKey(pendingKey); if (pt && pt.state === 'idle') { var k = pendingKey; pendingKey = null; activate(k, true); } }
+    autoSubtitles();
+    if (activeTrack && activeTrack.kind === 'embedded') renderSubs(true);
+  }
+  function ensureWindow() {
+    if (!embWindowOn || embFull || embBusy || embNoText || embWinFails >= 3) return;
+    var p = Math.max(0, position());
+    if (coverAhead(p) >= WIN_AHEAD_MIN) return;
+    var from = Math.max(0, Math.floor(p - WIN_BACK));
+    embBusy = true;
+    fetch('/media/embsub/' + cfg.fileId + '/window?from=' + from + '&len=' + WIN_LEN, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) { embWinFails = 0; applyWindow(d); })
+      .catch(function () { embWinFails++; })
+      .then(function () { embBusy = false; if (embWindowOn && !embFull && embWinFails < 3 && coverAhead(Math.max(0, position())) < WIN_AHEAD_MIN) setTimeout(ensureWindow, 500); });
+  }
+  video.addEventListener('timeupdate', function () { var now = Date.now(); if (now - embTick > 4000) { embTick = now; ensureWindow(); } });
+  video.addEventListener('seeked', ensureWindow);
+
   function loadEmbedded() {
     if (embTimer) { clearTimeout(embTimer); embTimer = null; }
+    idbGet(cacheKey).then(function (hit) {
+      if (hit && hit.tracks && hit.fp === (cfg.fingerprint || '')) {
+        embFull = true;
+        var list = hit.tracks.map(function (t) { return { index: t.index, lang: t.lang, title: t.title, supported: true, state: 'ready', vtt: t.vtt }; });
+        for (var i = 0; i < (hit.unsupported || 0); i++) list.push({ supported: false });
+        applyEmbedded(list);
+        hit.at = Date.now(); idbPut(hit);                // opened just now: moves to the back of the removal queue
+        return;
+      }
+      embWindowOn = true;
+      ensureWindow();
+      pollServer();
+    });
+  }
+  function pollServer() {
     fetch('/media/embsub/' + cfg.fileId, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (d) {
-        applyEmbedded(d.tracks || []);
-        if (embInfo.preparing && ++embPolls < 600) embTimer = setTimeout(loadEmbedded, 3000);
+        var tr = d.tracks || [];
+        applyEmbedded(tr);
+        var supported = tr.filter(function (t) { return t.supported; });
+        if (embInfo.preparing && ++embPolls < 600) embTimer = setTimeout(pollServer, 3000);
+        else if (supported.length && supported.every(function (t) { return t.state === 'ready'; })) harvest(tr, supported);
       })
       .catch(function () { /* the menu still offers file loading */ });
+  }
+  // Takes the finished subtitles from the server once and keeps them in this browser for every later visit.
+  function harvest(tr, supported) {
+    Promise.all(supported.map(function (t) {
+      return fetch('/media/embsub/' + cfg.fileId + '/' + t.index, { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function (vtt) { return { index: t.index, lang: t.lang, title: t.title, vtt: vtt }; });
+    })).then(function (list) {
+      embFull = true;
+      list.forEach(function (x) {
+        var t = trackByKey('e' + x.index);
+        if (!t) return;
+        t.vtt = x.vtt;
+        if (t.cues) { t.cues = parseSubtitle(x.vtt); t.seen = null; if (activeTrack === t) renderSubs(true); }   // complete file replaces the stretch read so far
+      });
+      return idbPut({ k: cacheKey, fp: cfg.fingerprint || '', tracks: list, unsupported: tr.filter(function (t) { return !t.supported; }).length, at: Date.now() })
+        .then(idbTrim).then(keepStorage);
+    }).catch(function () { });
   }
   if (cfg.embeddedSubtitles || !cfg.inspected) loadEmbedded();
   autoSubtitles();
@@ -585,7 +830,7 @@
     item(m, '＋ Load subtitle file…', false, function () { el.file.click(); });
     item(m, '⏱ Timing & size…', false, function () { openTuner(); });
     var emb = embInfo;
-    if (emb.preparing) note(m, 'Preparing the subtitles inside the video… (first time only; they are saved on the server afterwards)');
+    if (emb.preparing && !subTracks.some(function (t) { return t.cues; })) note(m, 'Reading the subtitles inside the video… they will show up in a few seconds.');
     if (emb.failed) note(m, 'The subtitles inside this video could not be read. You can still load a subtitle file.');
     if (emb.unavailable) note(m, 'Subtitles inside the video need ffmpeg on the server (Admin › Dashboard › Download FFmpeg).');
     if (emb.unsupported) note(m, emb.unsupported + ' image-based subtitle track(s) (Blu-ray / DVD style) cannot be turned into text, so they cannot be shown here.');
@@ -828,6 +1073,11 @@
     setStatus('Ready. Starts with the English audio track (compatibility mode converts the stream when you press play).');
     updateTime();
   }
+  function startEnglishNow() {
+    var t = position();
+    audioIndex = cfg.preferredAudio; prevMode = mode === 'proxy' ? 'proxy' : 'direct'; triedModes.remux = true; lazyRemux = false;
+    load('remux', t < 0.5 ? 0 : t, !video.paused);
+  }
   function inspectNow() {
     inspecting = true; renderAudioMenu();
     fetch('/media/inspect/' + cfg.fileId, { method: 'POST', headers: { 'X-Requested-With': 'fetch' } })
@@ -844,8 +1094,10 @@
         renderAudioMenu(); renderSubMenu();
         var needEnglish = audioTracks.length > 1 && cfg.preferredAudio != null && cfg.preferredAudio !== cfg.defaultAudio;
         if (!needEnglish) return;
-        if (cfg.remuxEnabled && mode === 'direct' && video.paused && position() < 0.5 && !lazyRemux) startLazyEnglish();
-        else if (currentAudioIndex() !== cfg.preferredAudio) toast('English audio found. Use the 🎧 menu to switch to it.');
+        if (cfg.remuxEnabled && (mode === 'direct' || mode === 'proxy') && !lazyRemux && position() < 8 && !gSkipPending) {
+          if (video.paused && position() < 0.5) startLazyEnglish();
+          else startEnglishNow();           // autoplay already began with the file's default track: continue from here with the English one
+        } else if (currentAudioIndex() !== cfg.preferredAudio) toast('English audio found. Use the 🎧 menu to switch to it.');
         renderAudioMenu();
       })
       .catch(function () { inspecting = false; renderAudioMenu(); });
@@ -854,18 +1106,14 @@
   // ------------------------------------------------------------ start
   var needEnglishSwitch = audioTracks.length > 1 && cfg.preferredAudio != null && cfg.preferredAudio !== cfg.defaultAudio;
   if (needEnglishSwitch && cfg.remuxEnabled && cfg.directUrl) {
-    // The file's default track is not English: start from a remux that carries the English track. It begins on first Play.
+    // The file's default track is not English: start (automatically) from a remux that carries the English track.
     audioIndex = cfg.preferredAudio;
     prevMode = 'direct';
     triedModes.remux = true;
-    lazyRemux = true;
-    mode = 'remux';
-    player.classList.remove('is-loading');
-    setStatus('Ready. Starts with the English audio track (compatibility mode converts the stream when you press play).');
     renderAudioMenu();
-    updateTime();
+    load('remux', 0, true);
   } else {
-    load('direct', 0, false);
+    load('direct', 0, true);
   }
   if (!cfg.inspected) inspectNow();
 })();

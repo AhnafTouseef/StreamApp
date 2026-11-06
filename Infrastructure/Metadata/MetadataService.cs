@@ -119,6 +119,17 @@ public sealed class MetadataService
         return outcome;
     }
 
+    /// <summary>Switches a matched movie from its ISP-folder poster to the TMDB poster, touching nothing else. False when TMDB has no poster for it.</summary>
+    public async Task<bool> UseTmdbPosterAsync(Movie movie, CancellationToken ct)
+    {
+        if (movie.TmdbId is not { } id) return false;
+        var d = await _tmdb.GetDetailsAsync(id, ct);
+        var url = _tmdb.ImageUrl("w500", d?.PosterPath);
+        if (url == null) return false;
+        movie.PosterUrl = url;
+        return true;
+    }
+
     /// <summary>Fetches full TMDB details for an id and copies them onto the movie (used by scans and the admin correction screen).</summary>
     public async Task ApplyTmdbIdAsync(AppDbContext db, Movie movie, int tmdbId, MatchStatus status, CancellationToken ct)
     {

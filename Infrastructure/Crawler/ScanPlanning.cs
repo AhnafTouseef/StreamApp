@@ -118,6 +118,16 @@ public static class UnitBuilder
     }
 }
 
+public static class ScanWindow
+{
+    /// <summary>
+    /// Keeps the units a routine scan of a movie-folders-in-the-root source should look at: folders modified on or after the cutoff,
+    /// and folders whose server listing shows no date (nothing can be judged about those, so they stay in).
+    /// </summary>
+    public static List<MovieUnit> Recent(IEnumerable<MovieUnit> units, DateTime cutoff) =>
+        units.Where(u => !u.Modified.HasValue || u.Modified.Value >= cutoff).ToList();
+}
+
 public static class ScanDecision
 {
     /// <summary>

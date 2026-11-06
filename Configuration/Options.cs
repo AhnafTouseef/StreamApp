@@ -32,9 +32,15 @@ public sealed class CrawlerOptions
     public int MaxRecursionDepth { get; set; } = 6;
     public int MaxRedirects { get; set; } = 3;
     public int FailureBackoffMinutes { get; set; } = 60;
+    /// <summary>
+    /// Routine scans of sources without year folders (strategy Flat: the root holds the movie folders directly) only look at folders whose modified date
+    /// is within this many months; older ones are skipped. The first scan of a source and every Deep scan ignore the window. 0 switches the window off.
+    /// </summary>
+    public int RecentWindowMonths { get; set; } = 24;
     public int DelayBetweenRequestsMs { get; set; } = 40;
     public int MaxConcurrentRequests { get; set; } = 4;
-    public bool PreferFolderPoster { get; set; } = true;
+    /// <summary>false (default): the TMDB poster is used when the movie is matched, the poster file inside the ISP folder is the fallback. true: the folder poster always wins.</summary>
+    public bool PreferFolderPoster { get; set; } = false;
     public string UserAgent { get; set; } = "MovieHub/1.0 (local catalog crawler)";
     public string[] VideoExtensions { get; set; } = { ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm" };
     public string[] SubtitleExtensions { get; set; } = { ".srt", ".vtt", ".ass", ".ssa" };
@@ -59,8 +65,12 @@ public sealed class MediaOptions
     public int MaxConcurrentProbes { get; set; } = 2;
     public int MaxFilesProbedPerMovie { get; set; } = 6;
     public int MaxRemuxSessions { get; set; } = 2;
-    /// <summary>Where subtitles extracted from inside video files are cached (WebVTT). Relative to the project folder.</summary>
-    public string SubtitleCacheDirectory { get; set; } = "cache/subtitles";
+    /// <summary>
+    /// Subtitles inside a video are extracted to WebVTT once and handed to the browser, which keeps them in its own storage (IndexedDB). The server only holds the
+    /// extracted files for a short moment, in this folder (empty = the operating system's temp folder), and deletes them after <see cref="SubtitleStagingMinutes"/>.
+    /// </summary>
+    public string SubtitleStagingDirectory { get; set; } = "";
+    public int SubtitleStagingMinutes { get; set; } = 15;
     /// <summary>How many files may have their embedded subtitles extracted at the same time (each extraction reads the whole video once).</summary>
     public int MaxSubtitleExtractions { get; set; } = 1;
     public int SubtitleExtractTimeoutMinutes { get; set; } = 30;

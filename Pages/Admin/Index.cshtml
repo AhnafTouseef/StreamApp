@@ -26,6 +26,11 @@
                     <form method="post" asp-page-handler="InspectPending" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(Model.PendingInspections == 0 || !Model.FfprobeOk)">Inspect them now</button></form>
                 }
             </td></tr>
+        <tr><td><strong>Posters from the ISP folder</strong><br /><span class="muted">TMDB posters are used for matched movies; the folder poster is only the fallback</span></td>
+            <td>
+                <strong>@Model.FolderPosterCount.ToString("N0")</strong>
+                <form method="post" asp-page-handler="UseTmdbPosters" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(Model.FolderPosterCount == 0 || !Model.TmdbOk)">Use TMDB posters</button></form>
+            </td></tr>
     </tbody>
 </table></div>
 @if (Model.Installer.IsRunning)

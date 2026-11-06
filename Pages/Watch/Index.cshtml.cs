@@ -59,6 +59,7 @@ public class IndexModel : PageModel
         ConfigJson = JsonSerializer.Serialize(new
         {
             fileId = Current.Id,
+            fingerprint = Current.FileFingerprint ?? "",
             directUrl = direct,
             proxyUrl = $"/media/stream/{Current.Id}",
             remuxUrl = $"/media/remux/{Current.Id}",

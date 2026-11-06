@@ -13,5 +13,3 @@ secrets.json
 tools/*
 !tools/README.txt
 
-# subtitles extracted from video files
-cache/

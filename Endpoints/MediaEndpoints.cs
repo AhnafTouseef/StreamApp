@@ -33,6 +33,7 @@ public static class MediaEndpoints
         g.MapGet("/remux/{fileId:int}", RemuxAsync);
         g.MapGet("/subtitle/{id:int}", SubtitleAsync);
         g.MapGet("/embsub/{fileId:int}", EmbeddedStatusAsync);
+        g.MapGet("/embsub/{fileId:int}/window", EmbeddedWindowAsync);
         g.MapGet("/embsub/{fileId:int}/{index:int}", EmbeddedTrackAsync);
         g.MapGet("/probe/{fileId:int}", ProbeAsync).RequireAuthorization();
         g.MapPost("/inspect/{fileId:int}", InspectAsync);
@@ -218,6 +219,26 @@ public static class MediaEndpoints
         });
     }
 
+    private static async Task<IResult> EmbeddedWindowAsync(int fileId, double? from, double? len, HttpContext ctx, IMediaLookup lookup, EmbeddedSubtitleService embedded, SourcePolicy policy)
+    {
+        if (!ctx.Request.Headers.ContainsKey("X-Requested-With")) return Results.BadRequest("Missing header.");
+        var file = await lookup.GetFileAsync(fileId, ctx.RequestAborted);
+        if (file == null) return Results.NotFound();
+        if (!policy.IsAllowed(file.Url)) return Results.StatusCode(403);
+        try
+        {
+            var w = await embedded.ReadWindowAsync(file, from ?? 0, len is > 0 ? len.Value : 600, ctx.RequestAborted);
+            ctx.Response.Headers["Cache-Control"] = "no-store";
+            return Results.Json(new
+            {
+                from = w.From, length = w.Length,
+                tracks = w.Tracks.Select(t => new { index = t.Index, lang = t.Language, title = t.Title, codec = t.Codec, isDefault = t.IsDefault, supported = t.Supported, vtt = t.Vtt })
+            });
+        }
+        catch (OperationCanceledException) { return Results.StatusCode(499); }
+        catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 502); }
+    }
+
     private static async Task<IResult> EmbeddedTrackAsync(int fileId, int index, HttpContext ctx, IMediaLookup lookup, EmbeddedSubtitleService embedded)
     {
         var file = await lookup.GetFileAsync(fileId, ctx.RequestAborted);
@@ -225,7 +246,7 @@ public static class MediaEndpoints
         if (file == null || stream == null || !EmbeddedSubtitleService.IsText(stream.Codec)) return Results.NotFound();   // only tracks the database knows about: the index never becomes part of an arbitrary path
         var path = embedded.PathFor(file, index);
         if (!File.Exists(path)) return Results.NotFound();
-        ctx.Response.Headers["Cache-Control"] = "public, max-age=86400";
+        ctx.Response.Headers["Cache-Control"] = "private, max-age=600";   // the player keeps its own copy in the browser; the staged file disappears from the server soon
         return Results.File(path, "text/vtt; charset=utf-8");
     }
 

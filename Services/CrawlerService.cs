@@ -200,6 +200,7 @@ public sealed class CrawlerService
 
         // Several listings can mention the same folder; keep one unit per URL.
         units = units.GroupBy(u => u.Url, StringComparer.Ordinal).Select(g => g.First()).ToList();
+        var listed = units.Count;
         progress.Total = units.Count;
 
         // ---- compare against what we already know
@@ -211,6 +212,18 @@ public sealed class CrawlerService
                     .Select(m => new { m.SourceFolderUrl, m.Id, m.FolderLastModified }).ToListAsync(ct))
                 .GroupBy(m => m.SourceFolderUrl, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => (g.First().Id, g.First().FolderLastModified), StringComparer.Ordinal);
+        }
+
+        // Movie folders directly in the root: a routine scan only looks at recently modified folders (Crawler:RecentWindowMonths). The first scan of a source
+        // (nothing known yet) and Deep scans look at everything.
+        if (strategy == ScanStrategy.Flat && !deep && known.Count > 0 && _opt.RecentWindowMonths > 0)
+        {
+            var cutoff = DateTime.UtcNow.AddMonths(-_opt.RecentWindowMonths);
+            var recent = ScanWindow.Recent(units, cutoff);
+            _log.LogInformation("Source {Source}: {Skipped} of {Listed} folders are older than {Months} months and were skipped (a Deep scan checks them).",
+                source.Name, units.Count - recent.Count, units.Count, _opt.RecentWindowMonths);
+            units = recent;
+            progress.Total = units.Count;
         }
 
         var toAdd = new List<MovieUnit>();
@@ -271,7 +284,7 @@ public sealed class CrawlerService
         await TouchDiscoveredAsync(seenIds, ct);
         if (tmdbOk.Usable) await BackfillMetadataAsync(source.Id, tmdbOk, ct);
 
-        return units.Count;
+        return listed;
     }
 
     private async Task SaveProgressAsync(int historyId, ScanProgress p, CancellationToken ct)

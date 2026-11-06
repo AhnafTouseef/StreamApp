@@ -9,11 +9,15 @@ using MovieHub.Models;
 
 namespace MovieHub.Services;
 
+public sealed record WindowTrack(int Index, string? Language, string? Title, string? Codec, bool IsDefault, bool Supported, string? Vtt);
+public sealed record SubtitleWindow(double From, double Length, IReadOnlyList<WindowTrack> Tracks);
+
 public sealed record EmbeddedTrack(int Index, string? Language, string? Title, string? Codec, bool IsDefault, bool Supported, string State);
 
 /// <summary>
 /// Browsers cannot show subtitle tracks that live inside a video file. This service lets ffmpeg read the file once, convert every text-based
-/// subtitle track to WebVTT and keep the result in a local cache folder, so the player can load the tracks like ordinary subtitle files.
+/// subtitle track to WebVTT and hold the result for a few minutes so the player can fetch it. The player then keeps the subtitles in the browser's own
+/// storage (IndexedDB), so the server never accumulates subtitle files: anything staged here is deleted after <see cref="MediaOptions.SubtitleStagingMinutes"/>.
 /// Image-based tracks (Blu-ray PGS, DVD VobSub) cannot be converted to text and are reported as unsupported.
 /// Extraction runs in the background (the whole file has to be read once, because subtitles are interleaved with the video); the player polls
 /// <see cref="Describe"/> until the tracks are ready. Extraction is limited to a few at a time and each file is only ever extracted once.
@@ -30,6 +34,7 @@ public sealed class EmbeddedSubtitleService
     private readonly ILogger<EmbeddedSubtitleService> _log;
     private readonly string _dir;
     private readonly SemaphoreSlim _slots;
+    private readonly SemaphoreSlim _windowSlots = new(2);
     private readonly ConcurrentDictionary<int, Job> _jobs = new();
     private readonly object _gate = new();
 
@@ -38,9 +43,40 @@ public sealed class EmbeddedSubtitleService
     public EmbeddedSubtitleService(IOptions<MediaOptions> opt, FfmpegTool ffmpeg, IHostEnvironment env, IHostApplicationLifetime lifetime, ILogger<EmbeddedSubtitleService> log)
     {
         _opt = opt.Value; _ffmpeg = ffmpeg; _lifetime = lifetime; _log = log;
-        var dir = string.IsNullOrWhiteSpace(_opt.SubtitleCacheDirectory) ? "cache/subtitles" : _opt.SubtitleCacheDirectory;
+        var dir = string.IsNullOrWhiteSpace(_opt.SubtitleStagingDirectory) ? Path.Combine(Path.GetTempPath(), "moviehub-subtitles") : _opt.SubtitleStagingDirectory;
         _dir = Path.IsPathRooted(dir) ? dir : Path.Combine(env.ContentRootPath, dir);
         _slots = new SemaphoreSlim(Math.Max(1, _opt.MaxSubtitleExtractions));
+        Purge(_dir, TimeSpan.Zero, DateTime.UtcNow);   // nothing from an earlier run is worth keeping: browsers hold the real copies
+    }
+
+    private DateTime _lastPurge = DateTime.MinValue;
+
+    /// <summary>Deletes staged files older than <paramref name="ttl"/>. Returns how many were removed.</summary>
+    public static int Purge(string dir, TimeSpan ttl, DateTime nowUtc)
+    {
+        var removed = 0;
+        try
+        {
+            if (!Directory.Exists(dir)) return 0;
+            foreach (var f in Directory.EnumerateFiles(dir))
+            {
+                try
+                {
+                    if (nowUtc - File.GetLastWriteTimeUtc(f) >= ttl) { File.Delete(f); removed++; }
+                }
+                catch (IOException) { /* in use or already gone */ }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+        catch (IOException) { }
+        return removed;
+    }
+    private void PurgeExpired()
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastPurge < TimeSpan.FromMinutes(1)) return;
+        _lastPurge = now;
+        Purge(_dir, TimeSpan.FromMinutes(Math.Max(1, _opt.SubtitleStagingMinutes)), now);
     }
 
     public static bool IsText(string? codec) => codec != null && TextCodecs.Contains(codec);
@@ -55,6 +91,7 @@ public sealed class EmbeddedSubtitleService
     /// <summary>The subtitle tracks of a file with their current state: ready, preparing, failed, unsupported or unavailable. Starts extraction when needed.</summary>
     public IReadOnlyList<EmbeddedTrack> Describe(MediaFileInfo file, bool start = true)
     {
+        PurgeExpired();
         var subs = file.Streams.Where(s => s.Kind == StreamKind.Subtitle).OrderBy(s => s.Index).ToList();
         var missing = subs.Where(s => IsText(s.Codec) && !File.Exists(PathFor(file, s.Index))).Select(s => s.Index).ToList();
         if (start && missing.Count > 0 && _ffmpeg.IsAvailable) EnsureStarted(file, missing);
@@ -71,6 +108,60 @@ public sealed class EmbeddedSubtitleService
             else state = "preparing";
             return new EmbeddedTrack(s.Index, s.Language, s.Title, s.Codec, s.IsDefault, IsText(s.Codec), state);
         }).ToList();
+    }
+
+    /// <summary>
+    /// The subtitle cues of just one stretch of the movie (<paramref name="length"/> seconds from <paramref name="from"/>), read by jumping straight to that position
+    /// in the file instead of reading all of it. This is what makes subtitles appear within seconds, like in a desktop player; the full extraction fills in the rest.
+    /// Cue times in the result are relative to <c>From</c>. Nothing is kept on the server.
+    /// </summary>
+    public async Task<SubtitleWindow> ReadWindowAsync(MediaFileInfo file, double from, double length, CancellationToken ct)
+    {
+        from = Math.Max(0, from); length = Math.Clamp(length, 30, 900);
+        var subs = file.Streams.Where(s => s.Kind == StreamKind.Subtitle).OrderBy(s => s.Index).ToList();
+        var text = subs.Where(s => IsText(s.Codec)).ToList();
+        var vtts = new Dictionary<int, string>();
+        if (text.Count > 0 && _ffmpeg.IsAvailable)
+        {
+            await _windowSlots.WaitAsync(ct);
+            var temps = new List<(int Index, string Path)>();
+            try
+            {
+                Directory.CreateDirectory(_dir);
+                var psi = new ProcessStartInfo(_ffmpeg.Path!) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-protocol_whitelist", "http,https,tcp,tls,crypto",
+                                          "-ss", from.ToString("0.###", inv), "-i", file.Url, "-t", length.ToString("0.###", inv) })
+                    psi.ArgumentList.Add(a);
+                foreach (var t in text)
+                {
+                    var tmp = Path.Combine(_dir, $"w-{Guid.NewGuid():N}-{t.Index}.tmp");
+                    temps.Add((t.Index, tmp));
+                    foreach (var a in new[] { "-map", $"0:{t.Index}", "-c:s", "webvtt", "-f", "webvtt", tmp }) psi.ArgumentList.Add(a);
+                }
+                using var proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
+                var stderr = proc.StandardError.ReadToEndAsync();
+                _ = proc.StandardOutput.ReadToEndAsync();
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(90));
+                try { await proc.WaitForExitAsync(timeout.Token); }
+                catch (OperationCanceledException) { try { proc.Kill(true); } catch (InvalidOperationException) { } throw; }
+                if (proc.ExitCode != 0)
+                {
+                    var err = (await stderr).Trim();
+                    throw new InvalidOperationException(string.IsNullOrEmpty(err) ? $"ffmpeg exited with code {proc.ExitCode}." : err.Split('\n')[0]);
+                }
+                foreach (var (index, path) in temps)
+                    if (File.Exists(path)) vtts[index] = await File.ReadAllTextAsync(path, ct);
+            }
+            finally
+            {
+                foreach (var (_, path) in temps) { try { File.Delete(path); } catch (IOException) { } }
+                _windowSlots.Release();
+            }
+        }
+        var tracks = subs.Select(s => new WindowTrack(s.Index, s.Language, s.Title, s.Codec, s.IsDefault, IsText(s.Codec), vtts.GetValueOrDefault(s.Index))).ToList();
+        return new SubtitleWindow(from, length, tracks);
     }
 
     private void EnsureStarted(MediaFileInfo file, List<int> missing)
@@ -131,7 +222,7 @@ public sealed class EmbeddedSubtitleService
             }
             foreach (var (part, final) in parts)
                 if (File.Exists(part)) File.Move(part, final, overwrite: true);
-            _log.LogInformation("Embedded subtitles of file {FileId} are cached.", file.Id);
+            _log.LogInformation("Embedded subtitles of file {FileId} are ready for the browser to fetch.", file.Id);
         }
         catch (OperationCanceledException) { job.Error = "Subtitle extraction took too long or the application is stopping."; }
         catch (Exception ex)
