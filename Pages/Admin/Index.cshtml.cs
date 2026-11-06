@@ -21,8 +21,11 @@ public class IndexModel : AdminPageModel
     private readonly InspectionBackfill _backfill;
     private readonly FfmpegInstaller _installer;
     private readonly MovieHub.Infrastructure.Metadata.MetadataService _metadata;
-    public IndexModel(AppDbContext db, ScanCoordinator scans, FfprobeRunner ffprobe, FfmpegTool ffmpeg, InspectionBackfill backfill, FfmpegInstaller installer, MovieHub.Infrastructure.Metadata.MetadataService metadata)
-    { _db = db; _scans = scans; _ffprobe = ffprobe; _ffmpeg = ffmpeg; _backfill = backfill; _installer = installer; _metadata = metadata; }
+    private readonly PosterBackfill _posters;
+    public IndexModel(AppDbContext db, ScanCoordinator scans, FfprobeRunner ffprobe, FfmpegTool ffmpeg, InspectionBackfill backfill, FfmpegInstaller installer, MovieHub.Infrastructure.Metadata.MetadataService metadata, PosterBackfill posters)
+    { _db = db; _scans = scans; _ffprobe = ffprobe; _ffmpeg = ffmpeg; _backfill = backfill; _installer = installer; _metadata = metadata; _posters = posters; }
+
+    public PosterBackfill Posters => _posters;
 
     public FfmpegInstaller Installer => _installer;
 
@@ -39,7 +42,7 @@ public class IndexModel : AdminPageModel
     public int TotalCategories { get; private set; }
     public int TotalSources { get; private set; }
     public DateTime? LastSuccess { get; private set; }
-    public bool AnyRunning => _scans.Running.Count > 0 || _backfill.IsRunning || _installer.IsRunning;
+    public bool AnyRunning => _scans.Running.Count > 0 || _backfill.IsRunning || _installer.IsRunning || _posters.IsRunning;
     public List<RecentMovie> Recent { get; private set; } = new();
     public List<ScanRow> History { get; private set; } = new();
     public List<ScanRow> Failures { get; private set; } = new();
@@ -81,25 +84,12 @@ public class IndexModel : AdminPageModel
         return RedirectToPage();
     }
 
-    /// <summary>Movies matched on TMDB that still show the poster from the ISP folder get the TMDB poster instead (a batch per click keeps each request short).</summary>
-    public async Task<IActionResult> OnPostUseTmdbPostersAsync()
+    /// <summary>Movies matched on TMDB that still show the poster from the ISP folder get the TMDB poster instead: one click, runs in the background until all are done.</summary>
+    public IActionResult OnPostUseTmdbPosters()
     {
-        var ct = HttpContext.RequestAborted;
-        if (!_metadata.IsConfigured) { Fail("TMDB is not configured (set Tmdb:ApiKey)."); return RedirectToPage(); }
-        var batch = await _db.Movies.Where(m => m.TmdbId != null && m.LocalPosterUrl != null && m.PosterUrl == m.LocalPosterUrl).OrderBy(m => m.Id).Take(150).ToListAsync(ct);
-        int changed = 0, none = 0;
-        try
-        {
-            foreach (var m in batch)
-            {
-                if (await _metadata.UseTmdbPosterAsync(m, ct)) changed++; else { none++; m.PosterUrl = m.LocalPosterUrl; }
-                if (changed % 10 == 0) await _db.SaveChangesAsync(ct);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException) { Fail("Stopped early: " + ex.Message); }
-        await _db.SaveChangesAsync(ct);
-        var left = await _db.Movies.CountAsync(m => m.TmdbId != null && m.LocalPosterUrl != null && m.PosterUrl == m.LocalPosterUrl, ct);
-        Ok($"{changed} poster(s) switched to TMDB. {(none > 0 ? $"{none} have no TMDB poster and keep the folder poster. " : "")}{(left - none > 0 ? "More remain: press the button again." : "")}");
+        if (!_metadata.IsConfigured) Fail("TMDB is not configured (set Tmdb:ApiKey).");
+        else if (_posters.TryStart()) Ok("Switching all matched movies to their TMDB poster in the background. This page refreshes while it runs.");
+        else Fail("A poster pass is already running.");
         return RedirectToPage();
     }
 

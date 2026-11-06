@@ -151,7 +151,7 @@ The **first scan** of a source and every **Deep scan** ignore the window, so the
 
 ### Posters
 Cards and detail pages use a fixed 2:3 frame, so an oddly sized poster image never makes a card bigger. The poster is the **TMDB poster when the movie is matched**; the poster file inside the ISP folder is the fallback
-(`Crawler:PreferFolderPoster`, default `false`; set `true` to always prefer the folder poster). Movies imported earlier with the folder poster can be switched in batches with **Admin → Dashboard → Use TMDB posters**.
+(`Crawler:PreferFolderPoster`, default `false`; set `true` to always prefer the folder poster). Movies imported earlier with the folder poster can be switched with one click on **Admin → Dashboard → Use TMDB posters** (runs in the background; the dashboard shows progress).
 
 ### Browse lists
 Category, genre and search lists default to **Most popular** (TMDB popularity; unmatched entries fall to the end). Pick *Recently added*, *Release year*, *Rating* or *Alphabetical* from the Sort dropdown.

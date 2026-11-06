@@ -28,8 +28,16 @@
             </td></tr>
         <tr><td><strong>Posters from the ISP folder</strong><br /><span class="muted">TMDB posters are used for matched movies; the folder poster is only the fallback</span></td>
             <td>
-                <strong>@Model.FolderPosterCount.ToString("N0")</strong>
-                <form method="post" asp-page-handler="UseTmdbPosters" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(Model.FolderPosterCount == 0 || !Model.TmdbOk)">Use TMDB posters</button></form>
+                @if (Model.Posters.IsRunning) { <span class="status Running">Switching @Model.Posters.Done.ToString("N0") / @Model.Posters.Total.ToString("N0")</span> }
+                else
+                {
+                    <strong>@Model.FolderPosterCount.ToString("N0")</strong>
+                    <form method="post" asp-page-handler="UseTmdbPosters" class="inline"><button class="btn btn-primary btn-sm" type="submit" disabled="@(Model.FolderPosterCount == 0 || !Model.TmdbOk)">Use TMDB posters</button></form>
+                    @if (Model.Posters.FinishedAt != null)
+                    {
+                        <span class="muted"> · last run: @Model.Posters.Switched.ToString("N0") switched@(Model.Posters.Kept > 0 ? $", {Model.Posters.Kept:N0} have no TMDB poster (they keep the folder poster)" : "")@(Model.Posters.Failed > 0 ? $", {Model.Posters.Failed:N0} failed ({Model.Posters.LastError})" : "")</span>
+                    }
+                }
             </td></tr>
     </tbody>
 </table></div>
