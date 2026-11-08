@@ -22,15 +22,18 @@ public static class MediaEndpoints
     public const string StreamClientName = "stream";
     private static readonly SemaphoreSlim RemuxSlots = new(1, 1); // replaced in Map with the configured size
     private static SemaphoreSlim _remux = RemuxSlots;
+    private static bool _alwaysEncode;
 
     public static void MapMediaEndpoints(this IEndpointRouteBuilder app)
     {
         var opt = app.ServiceProvider.GetRequiredService<IOptions<MediaOptions>>().Value;
         _remux = new SemaphoreSlim(Math.Max(1, opt.MaxRemuxSessions));
+        _alwaysEncode = opt.AlwaysEncodeVideo;
 
         var g = app.MapGroup("/media");
         g.MapMethods("/stream/{fileId:int}", new[] { "GET", "HEAD" }, StreamAsync);
         g.MapGet("/remux/{fileId:int}", RemuxAsync);
+        g.MapGet("/remux/{fileId:int}/start", RemuxStartAsync);
         g.MapGet("/subtitle/{id:int}", SubtitleAsync);
         g.MapGet("/embsub/{fileId:int}", EmbeddedStatusAsync);
         g.MapGet("/embsub/{fileId:int}/window", EmbeddedWindowAsync);
@@ -107,7 +110,7 @@ public static class MediaEndpoints
 
     private static async Task<IResult> RemuxAsync(
         int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
-        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null)
+        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null)
     {
         if (!ffmpeg.IsAvailable)
             return Results.Problem("Server-side audio switching is unavailable: ffmpeg was not found. Install FFmpeg or set Media:FfmpegPath.", statusCode: 501);
@@ -136,7 +139,10 @@ public static class MediaEndpoints
         try
         {
             // video=encode: the browser could not show the copied picture (10-bit H.264, odd profiles), so the picture is re-encoded as plain 8-bit H.264.
-            var copyVideo = videoStream?.Codec is "h264" or "avc1" && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
+            var copyVideo = videoStream?.Codec is "h264" or "avc1" && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
+            // A copied picture that starts after a seek needs to know where it really starts (k, from /start) so the audio can be lined up with it; without it, re-encode (exact).
+            if (copyVideo && t > 0 && (k is null || k < 0 || k > t)) copyVideo = false;
+            var seekCopy = copyVideo && t > 0;
             var psi = new ProcessStartInfo(ffmpeg.Path!)
             {
                 RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
@@ -144,14 +150,23 @@ public static class MediaEndpoints
             // The protocol whitelist stops a redirect from making ffmpeg read local files or other protocols.
             var args = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "http,https,tcp,tls,crypto" };
             if (t > 0) { args.Add("-ss"); args.Add(t.ToString("0.###", CultureInfo.InvariantCulture)); }
+            if (seekCopy) args.Add("-copyts");     // keep the file's own timestamps: the copied picture starts at k, the audio at t, and the gap between is filled with silence below
             args.AddRange(new[] { "-i", file.Url, "-map", "0:v:0?" });
             args.AddRange(new[] { "-map", audioStream != null ? $"0:{audioStream.Index}" : "0:a:0?" });
             args.AddRange(copyVideo
                 ? new[] { "-c:v", "copy" }
                 : new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p" });
+            // Some files have audio that begins a few seconds after the picture (or after the point a seek lands on). The browser ignores that gap in this kind of MP4
+            // and would play the sound too early, so the gap is filled with silence: the audio then really starts together with the picture.
+            // With a copied picture after a seek the picture starts at k (a keyframe before t) and the audio at t: the silence is padded from k, and all timestamps are then moved to start at 0.
+            var firstPts = seekCopy ? Math.Round(k!.Value * 48000).ToString("0", CultureInfo.InvariantCulture) : "0";
+            args.AddRange(new[] { "-af", $"aresample=async=1:first_pts={firstPts}" });
+            if (seekCopy) args.AddRange(new[] { "-ar", "48000", "-avoid_negative_ts", "make_zero" });
             args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-sn", "-dn",
                 "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1" });
             foreach (var a in args) psi.ArgumentList.Add(a);
+            // Logged so a sync problem can be reproduced by hand: run this command with an output file instead of pipe:1 and play the file in a desktop player.
+            log.LogInformation("Compatibility stream for file {FileId}: ffmpeg {Args}", fileId, string.Join(' ', args.Select(a => a.Contains(' ') ? '"' + a + '"' : a)));
 
             proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
             _ = proc.StandardError.ReadToEndAsync().ContinueWith(
@@ -174,6 +189,120 @@ public static class MediaEndpoints
             _remux.Release();
         }
         return Results.Empty;
+    }
+
+    /// <summary>
+    /// Where a converted stream that is asked to start at <c>t</c> really starts. When the picture is copied (not re-encoded) ffmpeg can only begin where its seek lands
+    /// (a keyframe, which may be seconds before <c>t</c>, or even the start of the file when the file's index is sparse), and the audio must begin at exactly the same point
+    /// or picture and sound drift apart. The landing point is found with the very same ffmpeg seek the stream will use, because other tools (ffprobe) can land elsewhere.
+    /// If the seek lands far before <c>t</c>, the answer says to re-encode that stream: the re-encoded picture starts exactly at <c>t</c>.
+    /// </summary>
+    private static async Task<IResult> RemuxStartAsync(
+        int fileId, double t, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
+        SourcePolicy policy, ILogger<MediaLog> log, string? video = null)
+    {
+        ctx.Response.Headers["Cache-Control"] = "no-store";
+        if (t <= 0 || double.IsNaN(t) || double.IsInfinity(t)) return Results.Json(new { start = 0.0, at = 0.0, encode = false });
+        var file = await lookup.GetFileAsync(fileId, ctx.RequestAborted);
+        if (file == null) return Results.NotFound();
+        if (!policy.IsAllowed(file.Url)) return Results.StatusCode(403);
+
+        var videoStream = file.Streams.FirstOrDefault(x => x.Kind == StreamKind.Video);
+        var copying = videoStream?.Codec is "h264" or "avc1" && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
+        if (!copying || !ffmpeg.IsAvailable) return Results.Json(new { start = t, at = t, encode = false });   // a re-encoded picture can start exactly at t
+
+        try
+        {
+            var first = await FirstCopiedPacketAsync(ffmpeg.Path!, file.Url, t, ctx.RequestAborted);
+            if (first is { } landing)
+            {
+                landing = Math.Max(0, Math.Min(landing, t));
+                // A copy that would start this far before the requested point shows the wrong part of the movie: re-encode instead (exact).
+                if (t - landing > MaxCopySeekGapSeconds) return Results.Json(new { start = t, at = t, encode = true });
+                // A seek that lands on a keyframe which is not a clean restart point (open GOP: pictures that reference frames before it) cannot be played by browsers: re-encode instead.
+                if (await LandsOnBrokenKeyframeAsync(ffmpeg.Path!, file.Url, t, ctx.RequestAborted)) return Results.Json(new { start = t, at = t, encode = true });
+                // The landing point depends on the exact seek value (indexes round their timestamps), so the stream is requested with this very same t.
+                return Results.Json(new { start = landing, at = t, encode = false });   // the stream is requested with the same t, so it lands exactly here
+            }
+        }
+        catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested) { return Results.StatusCode(499); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException or OperationCanceledException)
+        {
+            log.LogWarning("Seek lookup for file {FileId} at {T}s failed: {Message}", fileId, t, ex.Message);
+        }
+        return Results.Json(new { start = t, at = t, encode = true });   // could not tell where a copy would start: the exact (re-encoded) way is safe
+    }
+
+    /// <summary>The time of the first picture ffmpeg copies when told to start at <paramref name="seek"/>, found with the same seek the real stream uses.</summary>
+    private static async Task<double?> FirstCopiedPacketAsync(string ffmpegPath, string url, double seek, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo(ffmpegPath) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        // -copyts keeps the file's own timestamps, so the first copied packet tells where the seek really landed.
+        foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "http,https,tcp,tls,crypto",
+                                  "-ss", seek.ToString("0.###", CultureInfo.InvariantCulture), "-copyts", "-i", url,
+                                  "-map", "0:v:0", "-c:v", "copy", "-an", "-sn", "-dn", "-frames:v", "1", "-f", "framecrc", "pipe:1" })
+            psi.ArgumentList.Add(a);
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
+        _ = proc.StandardError.ReadToEndAsync();
+        var output = proc.StandardOutput.ReadToEndAsync();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try { await proc.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { try { proc.Kill(true); } catch (InvalidOperationException) { } throw; }
+        return TryReadFirstPacketTime(await output, out var seconds) ? seconds : null;
+    }
+
+    private const double MaxCopySeekGapSeconds = 20;
+
+    /// <summary>
+    /// True when decoding a couple of seconds from the same seek point makes the decoder complain about missing reference pictures. That is what a copy that starts on an
+    /// open-GOP keyframe looks like, and browsers refuse to play such a stream (or show garbage), so those seeks are re-encoded instead.
+    /// </summary>
+    private static async Task<bool> LandsOnBrokenKeyframeAsync(string ffmpegPath, string url, double seek, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo(ffmpegPath) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        foreach (var a in new[] { "-hide_banner", "-loglevel", "warning", "-nostdin", "-protocol_whitelist", "http,https,tcp,tls,crypto",
+                                  "-ss", seek.ToString("0.###", CultureInfo.InvariantCulture), "-noaccurate_seek", "-i", url,
+                                  "-map", "0:v:0", "-t", "2", "-an", "-sn", "-dn", "-f", "null", "-" })
+            psi.ArgumentList.Add(a);
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
+        _ = proc.StandardOutput.ReadToEndAsync();
+        var err = proc.StandardError.ReadToEndAsync();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try { await proc.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { try { proc.Kill(true); } catch (InvalidOperationException) { } throw; }
+        return HasMissingReferenceWarning(await err);
+    }
+
+    internal static bool HasMissingReferenceWarning(string stderr) =>
+        stderr.Contains("mmco: unref short failure", StringComparison.Ordinal)
+        || stderr.Contains("reference picture missing", StringComparison.OrdinalIgnoreCase)
+        || stderr.Contains("co located POCs unavailable", StringComparison.OrdinalIgnoreCase)
+        || stderr.Contains("Missing reference picture", StringComparison.OrdinalIgnoreCase)
+        || stderr.Contains("decode_slice_header error", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Reads the presentation time (seconds) of the first packet from ffmpeg's <c>framecrc</c> output.</summary>
+    internal static bool TryReadFirstPacketTime(string framecrc, out double seconds)
+    {
+        seconds = 0;
+        double tb = 0;
+        foreach (var raw in framecrc.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("#tb 0:", StringComparison.Ordinal))
+            {
+                var frac = line["#tb 0:".Length..].Trim().Split('/');
+                if (frac.Length == 2 && double.TryParse(frac[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var num)
+                    && double.TryParse(frac[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var den) && den > 0) tb = num / den;
+                continue;
+            }
+            if (line.StartsWith('#') || tb <= 0) continue;
+            var cols = line.Split(',', StringSplitOptions.TrimEntries);          // stream, dts, pts, duration, size, hash
+            if (cols.Length >= 3 && cols[0] == "0" && long.TryParse(cols[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pts))
+            { seconds = pts * tb; return true; }
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ subtitles

@@ -65,6 +65,8 @@ public sealed class MediaOptions
     public int MaxConcurrentProbes { get; set; } = 2;
     public int MaxFilesProbedPerMovie { get; set; } = 6;
     public int MaxRemuxSessions { get; set; } = 2;
+    /// <summary>Compatibility mode always re-encodes the picture instead of copying it. Slower and uses CPU, but removes everything that depends on the file's keyframes and timestamps; use it to find out whether a sync problem comes from copying.</summary>
+    public bool AlwaysEncodeVideo { get; set; } = false;
     /// <summary>
     /// Subtitles inside a video are extracted to WebVTT once and handed to the browser, which keeps them in its own storage (IndexedDB). The server only holds the
     /// extracted files for a short moment, in this folder (empty = the operating system's temp folder), and deletes them after <see cref="SubtitleStagingMinutes"/>.

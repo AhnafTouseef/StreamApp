@@ -34,6 +34,8 @@
   var offset = 0;               // seconds already skipped by the remux stream (-ss)
   var audioIndex = null;        // chosen ffprobe audio stream index (remux mode)
   var triedModes = {};
+  var copyStart = null;          // keyframe the copied picture starts at after a seek (from the server)
+  var oneShotEncode = false;     // the server said this one stream must be re-encoded (the copied picture could not start where requested)
   var forceEncode = false;      // the picture of a copied video stream would not show: ask the server to re-encode it
   var loadTimer = null;
   var nativeAudio = false;
@@ -76,7 +78,8 @@
     if (m === 'proxy') return cfg.proxyUrl;
     var q = [];
     if (audioIndex !== null) q.push('audio=' + audioIndex);
-    if (forceEncode) q.push('video=encode');
+    if (forceEncode || oneShotEncode) q.push('video=encode');
+    else if (m === 'remux' && startAt > 0 && copyStart !== null) q.push('k=' + copyStart.toFixed(3));
     if (startAt > 0) q.push('t=' + startAt.toFixed(2));
     return cfg.remuxUrl + (q.length ? '?' + q.join('&') : '');
   }
@@ -99,11 +102,37 @@
   // An https page (e.g. through a Cloudflare tunnel) may not load an http:// source: the browser blocks it silently, so go straight to the server relay.
   function directUsable() { return !!cfg.directUrl && !(location.protocol === 'https:' && /^http:/i.test(cfg.directUrl)); }
 
+  // A converted stream whose picture is copied can only begin on a keyframe. The server tells where that is, and the sound is then started at the same point,
+  // so picture and sound stay together after a seek. (It may start a few seconds before the requested time, as in every player that copies the picture.)
+  var loadSeq = 0;
+  function copyPossible() { var c = String(cfg.videoCodec || '').toLowerCase(); return (c === 'h264' || c === 'avc1') && !forceEncode; }
+
   function load(m, startAt, autoplay) {
     if (m === 'direct' && !directUsable()) m = 'proxy';
     mode = m; triedModes[m] = true;
+    var seq = ++loadSeq;
+    if (m === 'remux' && startAt > 0 && copyPossible()) {
+      hideMessage();
+      player.classList.add('is-loading');
+      fetch(cfg.remuxUrl + '/start?t=' + startAt.toFixed(2), { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (d) {
+          if (seq !== loadSeq) return;                       // a newer load() took over while the lookup ran
+          var ok = d && typeof d.start === 'number' && d.start >= 0 && d.start <= startAt && !d.encode, k = ok ? d.start : startAt;
+          oneShotEncode = !ok;                                       // lookup failed or the copy would start far from the requested point: re-encode this stream (exact)
+          copyStart = ok ? k : null;                                 // where the copied picture really starts; the same t as asked is sent, so the server lands on it again
+          begin(m, k, ok ? startAt : k, autoplay);
+        });
+      return;
+    }
+    oneShotEncode = false; copyStart = null;
+    begin(m, startAt, startAt, autoplay);
+  }
+
+  function begin(m, startAt, requestAt, autoplay) {
     offset = m === 'remux' ? (startAt || 0) : 0;
-    var src = urlFor(m, startAt || 0);
+    var src = urlFor(m, requestAt || 0);
     if (!src) { fail('This movie\'s source address is not approved or missing.'); return; }
     hideMessage();
     player.classList.add('is-loading');
