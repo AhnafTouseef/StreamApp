@@ -19,8 +19,9 @@ public sealed class MovieCopyDto
 public sealed class MovieService
 {
     private readonly AppDbContext _db;
+    private readonly SearchIndex _search;
 
-    public MovieService(AppDbContext db) => _db = db;
+    public MovieService(AppDbContext db, SearchIndex search) { _db = db; _search = search; }
 
     private static readonly Expression<Func<Movie, MovieCardDto>> ToCard = m => new MovieCardDto
     {
@@ -175,11 +176,14 @@ public sealed class MovieService
         if (r.Year is { } filterYear)
             q = q.Where(m => m.ReleaseYear == filterYear);
 
+        var filtered = q;   // category / genre / year filters applied, text search not yet
+        var fuzzyText = (string?)null;
         if (!string.IsNullOrWhiteSpace(r.Query))
         {
             var text = r.Query.Trim();
             var like = "%" + EscapeLike(text) + "%";
-            if (int.TryParse(text, out var yearInText) && yearInText is >= 1880 and <= 2100)
+            var isYear = int.TryParse(text, out var yearInText) && yearInText is >= 1880 and <= 2100;
+            if (isYear)
             {
                 q = q.Where(m => m.ReleaseYear == yearInText
                     || EF.Functions.Like(m.Title, like, "\\")
@@ -190,7 +194,15 @@ public sealed class MovieService
                 q = q.Where(m => EF.Functions.Like(m.Title, like, "\\")
                     || (m.OriginalTitle != null && EF.Functions.Like(m.OriginalTitle, like, "\\"))
                     || m.MovieGenres.Any(mg => EF.Functions.Like(mg.Genre.Name, like, "\\")));
+                // nothing contains the text as typed: fall back to similar titles (typos, punctuation, word order)
+                if (!await q.AnyAsync(ct)) fuzzyText = text;
             }
+        }
+
+        if (fuzzyText != null)
+        {
+            var fuzzy = await BrowseFuzzyAsync(filtered, fuzzyText, r, ct);
+            if (fuzzy != null) return fuzzy;
         }
 
         IOrderedQueryable<Movie> ordered = (r.Sort ?? "popular").ToLowerInvariant() switch
@@ -211,6 +223,32 @@ public sealed class MovieService
             .Skip((page - 1) * pageSize).Take(pageSize).Select(ToCard).ToListAsync(ct);
 
         return new PagedResult<MovieCardDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total };
+    }
+
+    /// <summary>Similar-title results, best match first. Null when nothing is similar enough (the caller then shows the normal empty result).</summary>
+    private async Task<PagedResult<MovieCardDto>?> BrowseFuzzyAsync(IQueryable<Movie> filtered, string text, BrowseRequest r, CancellationToken ct)
+    {
+        var hits = await _search.SearchAsync(text, 100, ct);
+        if (hits.Count == 0) return null;
+
+        var candidateIds = hits.Select(h => h.Id).ToList();
+        var allowed = (await filtered.Where(m => candidateIds.Contains(m.Id)).Select(m => m.Id).ToListAsync(ct)).ToHashSet();   // honours hidden categories and the active filters
+        var ranked = hits.Where(h => allowed.Contains(h.Id)).ToList();
+        if (ranked.Count == 0) return null;
+
+        var pageSize = Math.Clamp(r.PageSize, 6, 120);
+        var pages = Math.Max(1, (int)Math.Ceiling(ranked.Count / (double)pageSize));
+        var page = Math.Clamp(r.Page, 1, pages);
+        var slice = ranked.Skip((page - 1) * pageSize).Take(pageSize).Select(h => h.Id).ToList();
+        var cards = await _db.Movies.AsNoTracking().Where(m => slice.Contains(m.Id)).Select(ToCard).ToListAsync(ct);
+        var order = slice.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        cards = cards.OrderBy(c => order[c.Id]).ToList();
+
+        var top = ranked[0];
+        var notice = string.Equals(top.Title, text, StringComparison.OrdinalIgnoreCase)
+            ? $"No exact match for “{text}”. Showing the closest titles."
+            : $"No exact match for “{text}”. Did you mean “{top.Title}”? Showing the closest titles.";
+        return new PagedResult<MovieCardDto> { Items = cards, Page = page, PageSize = pageSize, TotalCount = ranked.Count, Notice = notice };
     }
 
     private static string EscapeLike(string s) =>

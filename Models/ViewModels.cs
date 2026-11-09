@@ -39,6 +39,8 @@ public sealed class PagedResult<T>
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 36;
     public int TotalCount { get; set; }
+    /// <summary>A line shown above the results, e.g. that they are similar titles rather than exact matches.</summary>
+    public string? Notice { get; set; }
     public int TotalPages => PageSize <= 0 ? 0 : (int)Math.Ceiling(TotalCount / (double)PageSize);
 }
 

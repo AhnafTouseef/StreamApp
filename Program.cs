@@ -81,6 +81,8 @@ services.AddSingleton<CategoryService>();
 services.AddSingleton<AdminAuthService>();
 services.AddSingleton<LoginThrottle>();
 services.AddSingleton<IMediaLookup, EfMediaLookup>();
+services.AddSingleton<SearchIndex>();
+services.AddHostedService<SearchIndexWarmup>();
 services.AddScoped<MovieService>();
 
 // ---- Authentication for /admin ----

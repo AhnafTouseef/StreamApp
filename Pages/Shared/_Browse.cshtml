@@ -49,6 +49,11 @@
     <span class="result-count">@Model.Result.TotalCount.ToString("N0") movie@(Model.Result.TotalCount == 1 ? "" : "s")</span>
 </form>
 
+@if (!string.IsNullOrEmpty(Model.Result.Notice))
+{
+    <p class="search-notice" role="status">@Model.Result.Notice</p>
+}
+
 @if (Model.Result.Items.Count == 0)
 {
     <partial name="_EmptyState" model="@(Model.EmptyTitle, Model.EmptyMessage)" />

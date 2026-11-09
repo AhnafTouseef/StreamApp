@@ -158,6 +158,12 @@ The **first scan** of a source and every **Deep scan** ignore the window, so the
 Cards and detail pages use a fixed 2:3 frame, so an oddly sized poster image never makes a card bigger. The poster is the **TMDB poster when the movie is matched**; the poster file inside the ISP folder is the fallback
 (`Crawler:PreferFolderPoster`, default `false`; set `true` to always prefer the folder poster). Movies imported earlier with the folder poster can be switched with one click on **Admin → Dashboard → Use TMDB posters** (runs in the background; the dashboard shows progress).
 
+### Search
+
+Search first looks for the text as typed (title, original title, genre). When nothing contains it, the site falls back to **similar titles**: typos (`intersteller`), joined or split words (`spiderman`, `starwars`, `back to future`), missing or reordered words (`lord rings`), accents and punctuation (`amelie`, `wall e`). The results are ordered by best match and a line above them says what was matched ("Did you mean …?"). Category, genre and year filters still apply. Very short words are never typo-matched, and unrelated text shows the normal "No results" page.
+
+The similar-title search uses an in-memory index of every movie's title and original title. Nothing has to be started: it is built in the background when the app starts, and it follows the catalog by itself. After a scan adds or changes movies, after an admin edit, or after entries are removed, the next search notices (it re-checks the movie table at most every two seconds) and rebuilds it, which takes milliseconds for thousands of movies. Nothing is stored in the database, so there is no migration and no rebuild button.
+
 ### Browse lists
 Category, genre and search lists default to **Most popular** (TMDB popularity; unmatched entries fall to the end). Pick *Recently added*, *Release year*, *Rating* or *Alphabetical* from the Sort dropdown.
 
