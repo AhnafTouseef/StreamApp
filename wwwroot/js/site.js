@@ -194,3 +194,89 @@
   show(0, false);
   restart();
 })();
+
+// ---- header search: matching titles drop down while typing.
+// Its own function on purpose: the script above returns early on pages without a hero, which must not stop the search box from working.
+(function () {
+  'use strict';
+    var form = document.querySelector('.header-search');
+    var input = form && form.querySelector('input[name="q"]');
+    if (!input || !window.fetch) return;
+
+    var list = document.createElement('ul');
+    list.className = 'suggest'; list.id = 'suggest-list'; list.setAttribute('role', 'listbox'); list.hidden = true;
+    form.appendChild(list);
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', 'suggest-list');
+    input.setAttribute('aria-expanded', 'false');
+
+    var timer = 0, ctl = null, shown = '', active = -1, seq = 0;
+
+    function esc(t) { return String(t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function mark(title, typed) {
+      var i = title.toLowerCase().indexOf(typed.toLowerCase());
+      if (i < 0 || !typed) return esc(title);
+      return esc(title.slice(0, i)) + '<b>' + esc(title.slice(i, i + typed.length)) + '</b>' + esc(title.slice(i + typed.length));
+    }
+    function close() { list.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; input.removeAttribute('aria-activedescendant'); }
+    function setActive(n) {
+      var items = list.querySelectorAll('li[role=option]');
+      if (!items.length) return;
+      active = (n + items.length) % items.length;
+      items.forEach(function (li, i) { li.classList.toggle('is-active', i === active); li.setAttribute('aria-selected', i === active ? 'true' : 'false'); });
+      input.setAttribute('aria-activedescendant', items[active].id);
+      items[active].scrollIntoView({ block: 'nearest' });
+    }
+    function render(rows, typed) {
+      var html = rows.map(function (r, i) {
+        var meta = [r.year, r.category].filter(Boolean).join(' · ');
+        var img = r.poster ? '<img src="' + esc(r.poster) + '" alt="" loading="lazy" width="36" height="54">' : '<span class="suggest-noimg"></span>';
+        return '<li role="option" id="suggest-' + i + '" aria-selected="false"><a href="/movie/' + r.id + '" tabindex="-1">' + img +
+          '<span class="suggest-text"><span class="suggest-title">' + mark(r.title, typed) + '</span>' + (meta ? '<span class="suggest-meta">' + esc(meta) + '</span>' : '') + '</span></a></li>';
+      }).join('');
+      html += '<li class="suggest-all" role="presentation"><a href="/search?q=' + encodeURIComponent(typed) + '" tabindex="-1">See all results for “' + esc(typed) + '”</a></li>';
+      list.innerHTML = html; list.hidden = false; active = -1;
+      input.setAttribute('aria-expanded', 'true'); input.removeAttribute('aria-activedescendant');
+    }
+    function ask() {
+      var typed = input.value.trim();
+      if (typed.length < 2) { shown = ''; close(); return; }
+      if (typed === shown && !list.hidden) return;
+      if (ctl) ctl.abort();
+      ctl = typeof AbortController === 'function' ? new AbortController() : null;   // very old browsers: no cancelling, stale answers are ignored below
+      var mine = ++seq;
+      fetch('/api/suggest?q=' + encodeURIComponent(typed), { signal: ctl ? ctl.signal : undefined, headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (rows) {
+          if (mine !== seq || input.value.trim() !== typed) return;   // an older answer arriving late
+          shown = typed;
+          if (!rows.length) { close(); return; }
+          render(rows, typed);
+        })
+        .catch(function () { /* aborted or offline: the normal search still works */ });
+    }
+
+    input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(ask, 120); });
+    input.addEventListener('focus', function () { if (input.value.trim().length >= 2) ask(); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (list.hidden) { ask(); return; }
+        e.preventDefault(); setActive(active + (e.key === 'ArrowDown' ? 1 : -1));
+      } else if (e.key === 'Escape') { if (!list.hidden) { e.preventDefault(); close(); } }   // first Escape only closes the list (a search field would also clear itself)
+      else if (e.key === 'Enter' && !list.hidden && active >= 0) {
+        var a = list.querySelectorAll('li[role=option] a')[active];
+        if (a) { e.preventDefault(); window.location.href = a.getAttribute('href'); }
+      }
+    });
+    list.addEventListener('mousedown', function (e) { e.preventDefault(); });   // keep focus in the box so a click is not lost to blur
+    list.addEventListener('mousemove', function (e) {
+      var li = e.target.closest && e.target.closest('li[role=option]');
+      if (!li) return;
+      var items = Array.prototype.slice.call(list.querySelectorAll('li[role=option]'));
+      var n = items.indexOf(li); if (n !== active) setActive(n);
+    });
+    document.addEventListener('click', function (e) { if (!form.contains(e.target)) close(); });
+    input.addEventListener('blur', function () { setTimeout(close, 120); });
+    form.addEventListener('submit', function () { clearTimeout(timer); if (ctl) ctl.abort(); close(); });
+})();

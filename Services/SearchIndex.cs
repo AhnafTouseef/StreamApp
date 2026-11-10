@@ -73,6 +73,14 @@ public sealed class SearchIndex
         return Search(query, max);
     }
 
+    /// <summary>Type-ahead matches for a partly typed title (see <see cref="Snapshot.Suggest"/>).</summary>
+    public async Task<IReadOnlyList<SearchHit>> SuggestAsync(string typed, int max = 8, CancellationToken ct = default)
+    {
+        await EnsureFreshAsync(ct);
+        var snap = _snap;
+        return snap == null ? Array.Empty<SearchHit>() : snap.Suggest(typed, max);
+    }
+
     /// <summary>Searches the current index (empty before the first build).</summary>
     public IReadOnlyList<SearchHit> Search(string query, int max = 100)
     {
@@ -206,6 +214,48 @@ public sealed class SearchIndex
             }
             return hits.OrderByDescending(h => Math.Round(h.S, 2)).ThenByDescending(h => h.E.Popularity).ThenBy(h => h.E.Id)
                 .Take(Math.Max(1, max)).Select(h => new SearchHit(h.E.Id, h.S, h.E.Title)).ToList();
+        }
+
+        /// <summary>
+        /// Matches for letters typed so far, best first: titles that start with the text, then titles where every typed word starts a word of the title
+        /// (any order), then titles that contain the text, then similar titles (typos) once at least three letters are typed.
+        /// </summary>
+        public IReadOnlyList<SearchHit> Suggest(string typed, int max = 8)
+        {
+            var q = MakeVariant(typed);
+            if (q.Compact.Length == 0) return Array.Empty<SearchHit>();
+            var hits = new List<(Entry E, double S)>();
+            foreach (var e in Entries)
+            {
+                var best = 0.0;
+                foreach (var v in e.Variants) best = Math.Max(best, SuggestScore(q, v));
+                if (best > 0) hits.Add((e, best));
+            }
+            return hits.OrderByDescending(h => Math.Round(h.S, 1)).ThenByDescending(h => h.E.Popularity).ThenBy(h => h.E.Title, StringComparer.Ordinal)
+                .Take(Math.Max(1, max)).Select(h => new SearchHit(h.E.Id, h.S, h.E.Title)).ToList();
+        }
+
+        private double SuggestScore(Variant q, Variant v)
+        {
+            if (v.Compact.StartsWith(q.Compact, StringComparison.Ordinal)) return 1.0;
+            if (q.Tokens.Length > 1 || q.Compact.Length >= 2)
+            {
+                // every typed word starts a different word of the title: "rings lord", "dark kni"
+                var used = new bool[v.Tokens.Length]; var all = true;
+                foreach (var qt in q.Tokens)
+                {
+                    var found = -1;
+                    for (var i = 0; i < v.Tokens.Length; i++)
+                        if (!used[i] && v.Tokens[i].StartsWith(qt, StringComparison.Ordinal)) { found = i; break; }
+                    if (found < 0) { all = false; break; }
+                    used[found] = true;
+                }
+                if (all) return 0.95;
+            }
+            if (q.Compact.Length >= 2 && v.Compact.Contains(q.Compact, StringComparison.Ordinal)) return 0.8;
+            if (q.Compact.Length < 3) return 0;
+            var fuzzy = Score(q, v);
+            return fuzzy >= MinScore ? fuzzy : 0;
         }
 
         private double Score(Variant q, Variant v)

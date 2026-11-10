@@ -133,6 +133,14 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapRazorPages();
+app.MapGet("/api/suggest", async (string? q, MovieService movies, HttpContext ctx) =>
+{
+    var text = (q ?? "").Trim();
+    if (text.Length < 2 || text.Length > 80) return Results.Json(Array.Empty<object>());
+    var rows = await movies.SuggestAsync(text, 8, ctx.RequestAborted);
+    ctx.Response.Headers.CacheControl = "private, max-age=30";
+    return Results.Json(rows.Select(r => new { id = r.Id, title = r.Title, year = r.Year, poster = r.PosterUrl, category = r.CategoryName }));
+});
 app.MapMediaEndpoints();
 
 app.Run();

@@ -225,6 +225,28 @@ public sealed class MovieService
         return new PagedResult<MovieCardDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total };
     }
 
+    /// <summary>One row of the search box's drop-down.</summary>
+    public sealed class SuggestionDto
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public int? Year { get; set; }
+        public string? PosterUrl { get; set; }
+        public string? CategoryName { get; set; }
+    }
+
+    /// <summary>Titles matching the letters typed so far, for the header search box. Hidden categories are excluded like everywhere else.</summary>
+    public async Task<IReadOnlyList<SuggestionDto>> SuggestAsync(string typed, int max, CancellationToken ct)
+    {
+        var hits = await _search.SuggestAsync(typed, Math.Max(max * 3, 12), ct);   // a few extra: some may sit in hidden categories
+        if (hits.Count == 0) return Array.Empty<SuggestionDto>();
+        var ids = hits.Select(h => h.Id).ToList();
+        var rows = await Visible().Where(m => ids.Contains(m.Id))
+            .Select(m => new SuggestionDto { Id = m.Id, Title = m.Title, Year = m.ReleaseYear, PosterUrl = m.PosterUrl, CategoryName = m.Category.Name }).ToListAsync(ct);
+        var order = ids.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        return rows.OrderBy(r => order[r.Id]).Take(max).ToList();
+    }
+
     /// <summary>Similar-title results, best match first. Null when nothing is similar enough (the caller then shows the normal empty result).</summary>
     private async Task<PagedResult<MovieCardDto>?> BrowseFuzzyAsync(IQueryable<Movie> filtered, string text, BrowseRequest r, CancellationToken ct)
     {

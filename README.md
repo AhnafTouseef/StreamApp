@@ -164,6 +164,8 @@ Search first looks for the text as typed (title, original title, genre). When no
 
 The similar-title search uses an in-memory index of every movie's title and original title. Nothing has to be started: it is built in the background when the app starts, and it follows the catalog by itself. After a scan adds or changes movies, after an admin edit, or after entries are removed, the next search notices (it re-checks the movie table at most every two seconds) and rebuilds it, which takes milliseconds for thousands of movies. Nothing is stored in the database, so there is no migration and no rebuild button.
 
+The search box in the header shows matching titles as you type (from two letters on): titles that start with what you typed come first, then titles where each typed word starts a word of the title, then titles that contain it, then similar titles for typos. It uses the same index through `GET /api/suggest?q=`, hides entries in hidden categories like the rest of the site, and supports the keyboard (↑ ↓ Enter, Esc) and touch. Enter with nothing highlighted runs the normal search.
+
 ### Browse lists
 Category, genre and search lists default to **Most popular** (TMDB popularity; unmatched entries fall to the end). Pick *Recently added*, *Release year*, *Rating* or *Alphabetical* from the Sort dropdown.
 
