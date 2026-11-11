@@ -26,7 +26,7 @@
     subs: $('subs'), toast: $('player-toast'), file: $('sub-file'),
     tuner: $('tuner'), tunerClose: $('tuner-close'), tunerTrack: $('tuner-track'), tunerOffset: $('tuner-offset'),
     tunerSlider: $('tuner-slider'), tunerSync: $('tuner-sync'), tunerScale: $('tuner-scale'), tunerReset: $('tuner-reset'),
-    sizeDown: $('size-down'), sizeUp: $('size-up'), sizeRead: $('size-read')
+    sizeDown: $('size-down'), sizeUp: $('size-up'), sizeRead: $('size-read'), btnCompat: $('btn-compat'), compatSwitch: $('compat-switch'), compatState: $('compat-state'), compatHint: $('compat-hint')
   };
 
   var mode = 'direct';          // direct | proxy | remux
@@ -110,6 +110,7 @@
   function load(m, startAt, autoplay) {
     if (m === 'direct' && !directUsable()) m = 'proxy';
     mode = m; triedModes[m] = true;
+    updateCompatButton();
     var seq = ++loadSeq;
     if (m === 'remux' && startAt > 0 && copyPossible()) {
       hideMessage();
@@ -1089,6 +1090,56 @@
     renderAudioMenu();
   }
 
+  // ------------------------------------------------------------ compatibility mode switch
+  // On = the server converts the stream with ffmpeg (plays almost anything, supports audio switching, costs server CPU and makes seeking a little slower).
+  // Off = the file is played as it is. The button shows what is really happening (an automatic fallback also turns it on) and a manual choice is remembered on this device.
+  var COMPAT_KEY = 'moviehub.compat';
+  function updateCompatButton() {
+    var on = mode === 'remux';
+    var title = !cfg.remuxEnabled ? 'Compatibility mode is not available: the server has no ffmpeg'
+      : on ? 'Compatibility mode is ON: the server converts the video. Click to play the original file instead.'
+           : 'Compatibility mode is OFF: playing the original file. Click to let the server convert the video.';
+    var b = el.btnCompat;
+    if (b) {
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.disabled = !cfg.remuxEnabled;
+      b.textContent = on ? 'Compat: on' : 'Compat: off';
+      b.title = title;
+    }
+    // the same switch under the player, easier to find and to read
+    if (el.compatSwitch) {
+      el.compatSwitch.checked = on;
+      el.compatSwitch.disabled = !cfg.remuxEnabled;
+      if (el.compatState) el.compatState.textContent = on ? 'On' : 'Off';
+      if (el.compatHint) el.compatHint.textContent = !cfg.remuxEnabled ? 'Needs ffmpeg on the server.'
+        : on ? 'The server converts the video (audio switching and more formats; uses server CPU).'
+             : 'Playing the original file.';
+    }
+  }
+  function setCompat(on) {
+    if (!cfg.remuxEnabled || (on === (mode === 'remux'))) return;
+    var at = lazyRemux ? 0 : position();
+    var playing = !video.paused || lazyRemux;
+    lazyRemux = false;
+    store.set(COMPAT_KEY, on ? '1' : '0');
+    if (on) {
+      prevMode = mode;
+      triedModes = { remux: true };
+      toast('Compatibility mode on: the server converts the video.');
+      load('remux', at, playing);
+    } else {
+      var hadChoice = audioIndex !== null && audioTracks.length > 1;
+      audioIndex = null; prevMode = null; forceEncode = false;
+      triedModes = {};
+      toast(hadChoice ? 'Compatibility mode off: playing the original file with its default audio track.' : 'Compatibility mode off: playing the original file.');
+      load('direct', at, playing);
+    }
+    renderAudioMenu();
+  }
+  if (el.btnCompat) el.btnCompat.addEventListener('click', function () { setCompat(mode !== 'remux'); });
+  if (el.compatSwitch) el.compatSwitch.addEventListener('change', function () { setCompat(el.compatSwitch.checked); });
+
   // ------------------------------------------------------------ idle controls + keyboard
   var idleTimer;
   function wake() {
@@ -1137,7 +1188,7 @@
   var inspecting = false;
   function startLazyEnglish() {
     clearTimeout(loadTimer);
-    lazyRemux = true; mode = 'remux'; offset = 0;
+    lazyRemux = true; mode = 'remux'; offset = 0; updateCompatButton();
     video.pause(); video.removeAttribute('src'); video.load();
     audioIndex = cfg.preferredAudio; prevMode = 'direct'; triedModes.remux = true;
     player.classList.remove('is-loading');
@@ -1183,8 +1234,12 @@
     triedModes.remux = true;
     renderAudioMenu();
     load('remux', 0, true);
+  } else if (cfg.remuxEnabled && store.get(COMPAT_KEY) === '1') {
+    triedModes.remux = true;
+    load('remux', 0, true);          // compatibility mode was left on for this device
   } else {
     load('direct', 0, true);
   }
+  updateCompatButton();
   if (!cfg.inspected) inspectNow();
 })();
