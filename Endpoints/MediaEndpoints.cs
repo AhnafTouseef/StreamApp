@@ -110,7 +110,7 @@ public static class MediaEndpoints
 
     private static async Task<IResult> RemuxAsync(
         int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
-        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null)
+        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null, string? hevc = null)
     {
         if (!ffmpeg.IsAvailable)
             return Results.Problem("Server-side audio switching is unavailable: ffmpeg was not found. Install FFmpeg or set Media:FfmpegPath.", statusCode: 501);
@@ -139,7 +139,8 @@ public static class MediaEndpoints
         try
         {
             // video=encode: the browser could not show the copied picture (10-bit H.264, odd profiles), so the picture is re-encoded as plain 8-bit H.264.
-            var copyVideo = videoStream?.Codec is "h264" or "avc1" && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
+            // hevc=1: the browser said it can show HEVC, so an HEVC picture is copied too (otherwise only H.264 is).
+            var copyVideo = CanCopyVideo(videoStream?.Codec, hevc == "1") && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
             // A copied picture that starts after a seek needs to know where it really starts (k, from /start) so the audio can be lined up with it; without it, re-encode (exact).
             if (copyVideo && t > 0 && (k is null || k < 0 || k > t)) copyVideo = false;
             var seekCopy = copyVideo && t > 0;
@@ -154,7 +155,7 @@ public static class MediaEndpoints
             args.AddRange(new[] { "-i", file.Url, "-map", "0:v:0?" });
             args.AddRange(new[] { "-map", audioStream != null ? $"0:{audioStream.Index}" : "0:a:0?" });
             args.AddRange(copyVideo
-                ? new[] { "-c:v", "copy" }
+                ? (IsHevc(videoStream?.Codec) ? new[] { "-c:v", "copy", "-tag:v", "hvc1" } : new[] { "-c:v", "copy" })   // hvc1 is the tag browsers expect for HEVC in MP4
                 : new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p" });
             // Some files have audio that begins a few seconds after the picture (or after the point a seek lands on). The browser ignores that gap in this kind of MP4
             // and would play the sound too early, so the gap is filled with silence: the audio then really starts together with the picture.
@@ -199,7 +200,7 @@ public static class MediaEndpoints
     /// </summary>
     private static async Task<IResult> RemuxStartAsync(
         int fileId, double t, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
-        SourcePolicy policy, ILogger<MediaLog> log, string? video = null)
+        SourcePolicy policy, ILogger<MediaLog> log, string? video = null, string? hevc = null)
     {
         ctx.Response.Headers["Cache-Control"] = "no-store";
         if (t <= 0 || double.IsNaN(t) || double.IsInfinity(t)) return Results.Json(new { start = 0.0, at = 0.0, encode = false });
@@ -208,7 +209,7 @@ public static class MediaEndpoints
         if (!policy.IsAllowed(file.Url)) return Results.StatusCode(403);
 
         var videoStream = file.Streams.FirstOrDefault(x => x.Kind == StreamKind.Video);
-        var copying = videoStream?.Codec is "h264" or "avc1" && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
+        var copying = CanCopyVideo(videoStream?.Codec, hevc == "1") && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
         if (!copying || !ffmpeg.IsAvailable) return Results.Json(new { start = t, at = t, encode = false });   // a re-encoded picture can start exactly at t
 
         try
@@ -254,6 +255,11 @@ public static class MediaEndpoints
 
     private const double MaxCopySeekGapSeconds = 20;
 
+    internal static bool IsHevc(string? codec) => codec is "hevc" or "h265" or "hvc1" or "hev1";
+
+    /// <summary>Whether the picture can be copied into the converted stream as it is: H.264 always, HEVC only when the browser said it can show it.</summary>
+    internal static bool CanCopyVideo(string? codec, bool browserShowsHevc) => codec is "h264" or "avc1" || (browserShowsHevc && IsHevc(codec));
+
     /// <summary>
     /// True when decoding a couple of seconds from the same seek point makes the decoder complain about missing reference pictures. That is what a copy that starts on an
     /// open-GOP keyframe looks like, and browsers refuse to play such a stream (or show garbage), so those seeks are re-encoded instead.
@@ -280,7 +286,8 @@ public static class MediaEndpoints
         || stderr.Contains("reference picture missing", StringComparison.OrdinalIgnoreCase)
         || stderr.Contains("co located POCs unavailable", StringComparison.OrdinalIgnoreCase)
         || stderr.Contains("Missing reference picture", StringComparison.OrdinalIgnoreCase)
-        || stderr.Contains("decode_slice_header error", StringComparison.OrdinalIgnoreCase);
+        || stderr.Contains("decode_slice_header error", StringComparison.OrdinalIgnoreCase)
+        || stderr.Contains("Could not find ref with POC", StringComparison.OrdinalIgnoreCase);   // HEVC
 
     /// <summary>Reads the presentation time (seconds) of the first packet from ffmpeg's <c>framecrc</c> output.</summary>
     internal static bool TryReadFirstPacketTime(string framecrc, out double seconds)

@@ -78,6 +78,7 @@
     if (m === 'proxy') return cfg.proxyUrl;
     var q = [];
     if (audioIndex !== null) q.push('audio=' + audioIndex);
+    if (hevcOk && isHevc(cfg.videoCodec)) q.push('hevc=1');   // this browser can show HEVC: let the server copy the picture
     if (forceEncode || oneShotEncode) q.push('video=encode');
     else if (m === 'remux' && startAt > 0 && copyStart !== null) q.push('k=' + copyStart.toFixed(3));
     if (startAt > 0) q.push('t=' + startAt.toFixed(2));
@@ -105,7 +106,26 @@
   // A converted stream whose picture is copied can only begin on a keyframe. The server tells where that is, and the sound is then started at the same point,
   // so picture and sound stay together after a seek. (It may start a few seconds before the requested time, as in every player that copies the picture.)
   var loadSeq = 0;
-  function copyPossible() { var c = String(cfg.videoCodec || '').toLowerCase(); return (c === 'h264' || c === 'avc1') && !forceEncode; }
+  // What the server's ffmpeg is doing right now, so a busy CPU is explained: copying the picture is cheap, re-encoding it is not.
+  function remuxDescription() {
+    var codec = String(cfg.videoCodec || '').toUpperCase();
+    var why = cfg.alwaysEncode ? 'the server is set to always re-encode the picture'
+      : !(codec === 'H264' || codec === 'AVC1' || (hevcOk && isHevc(codec))) ? (codec ? codec + ' video cannot be copied for this browser' : 'the video format is not known')
+      : forceEncode ? 'this browser could not show the copied picture (for example 10-bit video)'
+      : oneShotEncode ? 'a copied picture cannot start exactly at the point you jumped to'
+      : '';
+    return why ? 'Compatibility mode: the server is re-encoding the picture (' + why + ') and converting the audio. This uses a lot of server CPU.'
+               : 'Compatibility mode: the server copies the picture and only converts the audio (light on CPU).';
+  }
+  // Can this browser show HEVC? Then the server may copy an HEVC picture instead of re-encoding it (much cheaper). If it turns out not to show, the usual fallback re-encodes.
+  var hevcOk = (function () {
+    try { var v = document.createElement('video'); return !!v.canPlayType && v.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') !== ''; } catch (_) { return false; }
+  })();
+  function isHevc(c) { c = String(c || '').toLowerCase(); return c === 'hevc' || c === 'h265' || c === 'hvc1' || c === 'hev1'; }
+  function copyPossible() {
+    var c = String(cfg.videoCodec || '').toLowerCase();
+    return (c === 'h264' || c === 'avc1' || (hevcOk && isHevc(c))) && !forceEncode && !cfg.alwaysEncode;
+  }
 
   function load(m, startAt, autoplay) {
     if (m === 'direct' && !directUsable()) m = 'proxy';
@@ -115,7 +135,7 @@
     if (m === 'remux' && startAt > 0 && copyPossible()) {
       hideMessage();
       player.classList.add('is-loading');
-      fetch(cfg.remuxUrl + '/start?t=' + startAt.toFixed(2), { credentials: 'same-origin' })
+      fetch(cfg.remuxUrl + '/start?t=' + startAt.toFixed(2) + (hevcOk && isHevc(cfg.videoCodec) ? '&hevc=1' : ''), { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
         .then(function (d) {
@@ -148,7 +168,7 @@
     loadTimer = setTimeout(function () { if (video.readyState < 1) onError('timeout'); }, m === 'remux' ? 45000 : 25000);
     setStatus(m === 'direct' ? 'Streaming directly from the source server.'
       : m === 'proxy' ? 'Streaming through the application (the browser could not reach the source directly).'
-      : 'Compatibility mode: the server is converting the stream with ffmpeg (needed for audio switching and some formats).');
+      : remuxDescription());
   }
 
   function onError() {
