@@ -16,10 +16,12 @@ public class IndexModel : PageModel
     private readonly FfmpegTool _ffmpeg;
     private readonly SourcePolicy _policy;
     private readonly MediaOptions _media;
+    private readonly HardwareEncoder _hw;
+    private readonly SiteSettingsService _site;
 
-    public IndexModel(MovieService movies, FfmpegTool ffmpeg, SourcePolicy policy, IOptions<MediaOptions> media)
+    public IndexModel(MovieService movies, FfmpegTool ffmpeg, SourcePolicy policy, IOptions<MediaOptions> media, HardwareEncoder hw, SiteSettingsService site)
     {
-        _movies = movies; _ffmpeg = ffmpeg; _policy = policy; _media = media.Value;
+        _movies = movies; _ffmpeg = ffmpeg; _policy = policy; _media = media.Value; _hw = hw; _site = site;
     }
 
     public Movie Movie { get; private set; } = null!;
@@ -57,8 +59,10 @@ public class IndexModel : PageModel
                 supported = s.Format is "srt" or "vtt" or "ass" or "ssa"
             }).ToList();
 
+        var view = _site.Current.ViewFor(User.Identity!.IsAuthenticated);   // what this visitor may see (Admin > Site)
         ConfigJson = JsonSerializer.Serialize(new
         {
+            ui = new { hideTech = view.HideTechnical, hideHints = view.HideHints, hideCompat = view.HideCompat },
             fileId = Current.Id,
             fingerprint = Current.FileFingerprint ?? "",
             directUrl = direct,
@@ -66,6 +70,7 @@ public class IndexModel : PageModel
             remuxUrl = $"/media/remux/{Current.Id}",
             remuxEnabled = _ffmpeg.IsAvailable,
             alwaysEncode = _media.AlwaysEncodeVideo,
+            hwEncoder = _hw.Current?.Name,   // e.g. "Intel Quick Sync" when re-encoding runs on the graphics hardware, otherwise null
             inspected = Current.InspectedAt != null && Current.InspectionError == null, // a failed ffprobe run also sets InspectedAt, but it tells us nothing about the tracks
             inspectionError = Current.InspectionError,
             extension = Current.Extension,

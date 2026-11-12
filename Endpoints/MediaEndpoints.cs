@@ -20,14 +20,22 @@ namespace MovieHub.Endpoints;
 public static class MediaEndpoints
 {
     public const string StreamClientName = "stream";
-    private static readonly SemaphoreSlim RemuxSlots = new(1, 1); // replaced in Map with the configured size
-    private static SemaphoreSlim _remux = RemuxSlots;
+    // Streams whose picture is only copied cost a few percent of a core each: no limit unless Media:MaxRemuxSessions asks for one (null = unlimited).
+    // Streams that re-encode the picture really use the CPU, so they share a budget sized from the CPU count (Media:MaxEncodeSessions); they wait briefly for a slot.
+    private static SemaphoreSlim? _copySlots;
+    private static SemaphoreSlim? _encodeSlots;
+    private static SemaphoreSlim? _hwEncodeSlots;   // re-encodes done by the graphics hardware: the CPU is mostly free, so the budget is larger
+    private static readonly TimeSpan EncodeSlotWait = TimeSpan.FromSeconds(8);
     private static bool _alwaysEncode;
 
     public static void MapMediaEndpoints(this IEndpointRouteBuilder app)
     {
         var opt = app.ServiceProvider.GetRequiredService<IOptions<MediaOptions>>().Value;
-        _remux = new SemaphoreSlim(Math.Max(1, opt.MaxRemuxSessions));
+        _copySlots = opt.MaxRemuxSessions > 0 ? new SemaphoreSlim(opt.MaxRemuxSessions) : null;
+        var encodeLimit = opt.MaxEncodeSessions > 0 ? opt.MaxEncodeSessions : opt.MaxEncodeSessions < 0 ? 0 : Math.Max(1, Environment.ProcessorCount / 2);
+        _encodeSlots = encodeLimit > 0 ? new SemaphoreSlim(encodeLimit) : null;
+        var hwLimit = opt.MaxEncodeSessions > 0 ? opt.MaxEncodeSessions : opt.MaxEncodeSessions < 0 ? 0 : Math.Max(2, Environment.ProcessorCount);
+        _hwEncodeSlots = hwLimit > 0 ? new SemaphoreSlim(hwLimit) : null;
         _alwaysEncode = opt.AlwaysEncodeVideo;
 
         var g = app.MapGroup("/media");
@@ -109,7 +117,7 @@ public static class MediaEndpoints
     // ------------------------------------------------------------------ ffmpeg remux (optional)
 
     private static async Task<IResult> RemuxAsync(
-        int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
+        int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg, HardwareEncoder hardware,
         SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null, string? hevc = null)
     {
         if (!ffmpeg.IsAvailable)
@@ -132,49 +140,130 @@ public static class MediaEndpoints
         var videoStream = file.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
         if (audio.HasValue && audioStream == null) return Results.BadRequest("Unknown audio stream.");
 
-        if (!await _remux.WaitAsync(0, ctx.RequestAborted))
-            return Results.Problem("Too many compatibility streams are running. Try again shortly.", statusCode: 503);
+        // video=encode: the browser could not show the copied picture (10-bit H.264, odd profiles), so the picture is re-encoded as plain 8-bit H.264.
+        // hevc=1: the browser said it can show HEVC, so an HEVC picture is copied too (otherwise only H.264 is).
+        var copyVideo = CanCopyVideo(videoStream?.Codec, hevc == "1") && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
+        // A copied picture that starts after a seek needs to know where it really starts (k, from /start) so the audio can be lined up with it; without it, re-encode (exact).
+        if (copyVideo && t > 0 && (k is null || k < 0 || k > t)) copyVideo = false;
+        var seekCopy = copyVideo && t > 0;
+
+        // A full re-encode goes to the graphics hardware when this machine has a usable encoder (HardwareEncoder); a copied picture never needs one.
+        HwEncoderInfo? hw = null;
+        if (!copyVideo)
+        {
+            try { hw = await hardware.GetAsync(ctx.RequestAborted); }
+            catch (OperationCanceledException) { return Results.StatusCode(499); }
+        }
+
+        var slot = copyVideo ? _copySlots : hw != null ? _hwEncodeSlots : _encodeSlots;   // null: no limit
+        var holdsSlot = false;
+        async Task<bool> AcquireAsync(SemaphoreSlim? sem, TimeSpan wait)
+        {
+            if (sem == null) return true;
+            holdsSlot = await sem.WaitAsync(wait, ctx.RequestAborted);
+            return holdsSlot;
+        }
+        if (slot != null)
+        {
+            try { await AcquireAsync(slot, copyVideo ? TimeSpan.Zero : EncodeSlotWait); }
+            catch (OperationCanceledException) { return Results.StatusCode(499); }
+            if (!holdsSlot)
+            {
+                log.LogWarning("Compatibility stream for file {FileId} refused: all {Kind} slots are busy.", fileId, copyVideo ? "copy" : "re-encode");
+                ctx.Response.Headers["Retry-After"] = "5";
+                return Results.Problem(copyVideo ? "The server is at its limit of compatibility streams (Media:MaxRemuxSessions)."
+                                                 : "The server is already re-encoding as many streams as it can. Try again shortly.", statusCode: 503);
+            }
+        }
 
         Process? proc = null;
+        var started = Stopwatch.StartNew();
         try
         {
-            // video=encode: the browser could not show the copied picture (10-bit H.264, odd profiles), so the picture is re-encoded as plain 8-bit H.264.
-            // hevc=1: the browser said it can show HEVC, so an HEVC picture is copied too (otherwise only H.264 is).
-            var copyVideo = CanCopyVideo(videoStream?.Codec, hevc == "1") && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
-            // A copied picture that starts after a seek needs to know where it really starts (k, from /start) so the audio can be lined up with it; without it, re-encode (exact).
-            if (copyVideo && t > 0 && (k is null || k < 0 || k > t)) copyVideo = false;
-            var seekCopy = copyVideo && t > 0;
-            var psi = new ProcessStartInfo(ffmpeg.Path!)
+            // Builds the ffmpeg command. h = a hardware encoder for the re-encoded picture, or null for the software encoder (or a copied picture).
+            List<string> BuildArgs(HwEncoderInfo? h)
             {
-                RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
-            };
-            // The protocol whitelist stops a redirect from making ffmpeg read local files or other protocols.
-            var args = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "http,https,tcp,tls,crypto" };
-            if (t > 0) { args.Add("-ss"); args.Add(t.ToString("0.###", CultureInfo.InvariantCulture)); }
-            if (seekCopy) args.Add("-copyts");     // keep the file's own timestamps: the copied picture starts at k, the audio at t, and the gap between is filled with silence below
-            args.AddRange(new[] { "-i", file.Url, "-map", "0:v:0?" });
-            args.AddRange(new[] { "-map", audioStream != null ? $"0:{audioStream.Index}" : "0:a:0?" });
-            args.AddRange(copyVideo
-                ? (IsHevc(videoStream?.Codec) ? new[] { "-c:v", "copy", "-tag:v", "hvc1" } : new[] { "-c:v", "copy" })   // hvc1 is the tag browsers expect for HEVC in MP4
-                : new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p" });
-            // Some files have audio that begins a few seconds after the picture (or after the point a seek lands on). The browser ignores that gap in this kind of MP4
-            // and would play the sound too early, so the gap is filled with silence: the audio then really starts together with the picture.
-            // With a copied picture after a seek the picture starts at k (a keyframe before t) and the audio at t: the silence is padded from k, and all timestamps are then moved to start at 0.
-            var firstPts = seekCopy ? Math.Round(k!.Value * 48000).ToString("0", CultureInfo.InvariantCulture) : "0";
-            args.AddRange(new[] { "-af", $"aresample=async=1:first_pts={firstPts}" });
-            if (seekCopy) args.AddRange(new[] { "-ar", "48000", "-avoid_negative_ts", "make_zero" });
-            args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-sn", "-dn",
-                "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1" });
-            foreach (var a in args) psi.ArgumentList.Add(a);
-            // Logged so a sync problem can be reproduced by hand: run this command with an output file instead of pipe:1 and play the file in a desktop player.
-            log.LogInformation("Compatibility stream for file {FileId}: ffmpeg {Args}", fileId, string.Join(' ', args.Select(a => a.Contains(' ') ? '"' + a + '"' : a)));
+                // The protocol whitelist stops a redirect from making ffmpeg read local files or other protocols.
+                var args = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "http,https,tcp,tls,crypto" };
+                if (h != null) args.AddRange(h.DecodeArgs);   // let the graphics hardware decode the source as well
+                if (t > 0) { args.Add("-ss"); args.Add(t.ToString("0.###", CultureInfo.InvariantCulture)); }
+                if (seekCopy) args.Add("-copyts");     // keep the file's own timestamps: the copied picture starts at k, the audio at t, and the gap between is filled with silence below
+                args.AddRange(new[] { "-i", file.Url, "-map", "0:v:0?" });
+                args.AddRange(new[] { "-map", audioStream != null ? $"0:{audioStream.Index}" : "0:a:0?" });
+                args.AddRange(copyVideo
+                    ? (IsHevc(videoStream?.Codec) ? new[] { "-c:v", "copy", "-tag:v", "hvc1" } : new[] { "-c:v", "copy" })   // hvc1 is the tag browsers expect for HEVC in MP4
+                    : h != null ? h.VideoArgs
+                    : new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p" });
+                // Some files have audio that begins a few seconds after the picture (or after the point a seek lands on). The browser ignores that gap in this kind of MP4
+                // and would play the sound too early, so the gap is filled with silence: the audio then really starts together with the picture.
+                // With a copied picture after a seek the picture starts at k (a keyframe before t) and the audio at t: the silence is padded from k, and all timestamps are then moved to start at 0.
+                var firstPts = seekCopy ? Math.Round(k!.Value * 48000).ToString("0", CultureInfo.InvariantCulture) : "0";
+                args.AddRange(new[] { "-af", $"aresample=async=1:first_pts={firstPts}" });
+                if (seekCopy) args.AddRange(new[] { "-ar", "48000", "-avoid_negative_ts", "make_zero" });
+                args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-sn", "-dn",
+                    "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1" });
+                return args;
+            }
 
-            proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
-            _ = proc.StandardError.ReadToEndAsync().ContinueWith(
-                r => { if (r.IsCompletedSuccessfully && r.Result.Length > 0) log.LogWarning("ffmpeg: {Error}", r.Result.Trim()); });
+            Task<string>? errText = null;
+            Process StartFfmpeg(HwEncoderInfo? h)
+            {
+                var psi = new ProcessStartInfo(ffmpeg.Path!)
+                {
+                    RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
+                };
+                var args = BuildArgs(h);
+                foreach (var a in args) psi.ArgumentList.Add(a);
+                // Logged so a sync problem can be reproduced by hand: run this command with an output file instead of pipe:1 and play the file in a desktop player.
+                log.LogInformation("Compatibility stream for file {FileId}: ffmpeg {Args}", fileId, string.Join(' ', args.Select(a => a.Contains(' ') ? '"' + a + '"' : a)));
+                var p = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
+                var label = h != null ? "ffmpeg (" + h.Name + "): " : "ffmpeg: ";
+                errText = p.StandardError.ReadToEndAsync();
+                _ = errText.ContinueWith(r => { if (r.IsCompletedSuccessfully && r.Result.Length > 0) log.LogWarning("{Label}{Error}", label, r.Result.Trim()); });
+                return p;
+            }
 
             ctx.Response.ContentType = "video/mp4";
             ctx.Response.Headers["Cache-Control"] = "no-store";
+
+            proc = StartFfmpeg(hw);
+            if (hw != null)
+            {
+                // The hardware encoder is only known to work if the machine says so; when a stream fails to produce anything with it (driver, unsupported source format),
+                // the same stream is silently started again with the software encoder, so the viewer gets their video either way.
+                var first = new byte[81920];
+                var n = await proc.StandardOutput.BaseStream.ReadAsync(first, ctx.RequestAborted);
+                if (n > 0)
+                    await ctx.Response.Body.WriteAsync(first.AsMemory(0, n), ctx.RequestAborted);
+                else
+                {
+                    var failed = hw;
+                    string why;
+                    try { using var wait = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted); wait.CancelAfter(TimeSpan.FromSeconds(3)); await errText!.WaitAsync(wait.Token); why = FirstLine(errText.Result); }
+                    catch (OperationCanceledException) when (!ctx.RequestAborted.IsCancellationRequested) { why = "no output"; }
+                    log.LogWarning("Hardware encoder {Name} produced no video for file {FileId} ({Why}); trying the software encoder.", failed.Name, fileId, why);
+                    try { if (!proc.HasExited) proc.Kill(true); } catch { }
+                    proc.Dispose();
+                    proc = null;
+
+                    if (holdsSlot) { slot!.Release(); holdsSlot = false; }
+                    slot = _encodeSlots;
+                    if (!await AcquireAsync(slot, EncodeSlotWait))
+                    {
+                        ctx.Response.Headers["Retry-After"] = "5";
+                        return Results.Problem("The server is already re-encoding as many streams as it can. Try again shortly.", statusCode: 503);
+                    }
+                    hw = null;
+                    proc = StartFfmpeg(null);
+                    n = await proc.StandardOutput.BaseStream.ReadAsync(first, ctx.RequestAborted);
+                    if (n > 0)
+                    {
+                        // The software encoder worked where the hardware one did not: the fault is the hardware (not the source), so stop trying it for a while.
+                        hardware.ReportFailure(failed, why);
+                        await ctx.Response.Body.WriteAsync(first.AsMemory(0, n), ctx.RequestAborted);
+                    }
+                }
+            }
             await proc.StandardOutput.BaseStream.CopyToAsync(ctx.Response.Body, 81920, ctx.RequestAborted);
         }
         catch (OperationCanceledException) { }
@@ -185,11 +274,23 @@ public static class MediaEndpoints
         }
         finally
         {
+            if (holdsSlot) slot!.Release();   // free the slot first: a new request from the same viewer (seek, audio switch) must not be refused while the old process is still being killed
+            var endedByItself = proc is { HasExited: true };
+            int? code = null;
+            try { if (endedByItself) code = proc!.ExitCode; } catch { }
             try { if (proc is { HasExited: false }) proc.Kill(true); } catch { /* already finished */ }
             proc?.Dispose();
-            _remux.Release();
+            if (proc != null)
+                log.LogInformation("Compatibility stream for file {FileId} ended after {Seconds:0.0} s: {How}.", fileId, started.Elapsed.TotalSeconds,
+                    endedByItself ? "ffmpeg finished by itself (exit code " + code + ")" : "the viewer left or moved on, ffmpeg stopped");
         }
         return Results.Empty;
+    }
+
+    private static string FirstLine(string text)
+    {
+        var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+        return string.IsNullOrEmpty(line) ? "no output" : line.Length > 200 ? line[..200] : line;
     }
 
     /// <summary>

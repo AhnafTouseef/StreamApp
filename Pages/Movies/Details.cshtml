@@ -39,7 +39,7 @@
                 @if (!string.IsNullOrEmpty(m.ProductionInfo)) { <dt>Production</dt><dd>@m.ProductionInfo</dd> }
                 @if (m.ReleaseDate.HasValue) { <dt>Released</dt><dd>@m.ReleaseDate.Value.ToString("d MMMM yyyy", CultureInfo.InvariantCulture)</dd> }
                 <dt>Category</dt><dd>@m.Category.Name</dd>
-                @if (m.MatchStatus != MatchStatus.Matched && m.MatchStatus != MatchStatus.Manual) { <dt>Metadata</dt><dd class="muted">Not matched to TMDB yet</dd> }
+                @if (m.MatchStatus != MatchStatus.Matched && m.MatchStatus != MatchStatus.Manual) { <dt class="tech-only">Metadata</dt><dd class="muted tech-only">Not matched to TMDB yet</dd> }
             </dl>
         </div>
     </div>
@@ -63,7 +63,7 @@
 
     <h2 class="section-title">Available source</h2>
     <div class="panel">
-        <p class="muted" style="margin-top:0">From <strong>@m.Source.Name</strong> · folder <span class="mono">@m.FolderName</span></p>
+        <p class="muted tech-only" style="margin-top:0">From <strong>@m.Source.Name</strong> · folder <span class="mono">@m.FolderName</span></p>
         @if (m.MediaFiles.Count == 0)
         {
             <p class="muted">No playable video files are recorded for this entry.</p>

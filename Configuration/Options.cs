@@ -64,9 +64,18 @@ public sealed class MediaOptions
     public int ProbeTimeoutSeconds { get; set; } = 90;
     public int MaxConcurrentProbes { get; set; } = 2;
     public int MaxFilesProbedPerMovie { get; set; } = 6;
-    public int MaxRemuxSessions { get; set; } = 2;
+    /// <summary>Most compatibility streams that only copy the picture (cheap) at the same time. 0 = no limit.</summary>
+    public int MaxRemuxSessions { get; set; } = 0;
+    /// <summary>Most compatibility streams that re-encode the picture (CPU heavy) at the same time. 0 = automatic (half the CPU threads, at least 1), -1 = no limit. A stream waits a few seconds for a free slot.</summary>
+    public int MaxEncodeSessions { get; set; } = 0;
     /// <summary>Compatibility mode always re-encodes the picture instead of copying it. Slower and uses CPU, but removes everything that depends on the file's keyframes and timestamps; use it to find out whether a sync problem comes from copying.</summary>
     public bool AlwaysEncodeVideo { get; set; } = false;
+    /// <summary>Encode the picture on the graphics hardware when a re-encode is needed. auto (try nvenc, qsv, amf/vaapi with a test encode), none, nvenc, qsv, amf, vaapi, or custom (use <see cref="HardwareEncoderArgs"/>).</summary>
+    public string HardwareEncoder { get; set; } = "auto";
+    /// <summary>ffmpeg video arguments used when <see cref="HardwareEncoder"/> is custom, e.g. "-c:v h264_qsv -preset veryfast -global_quality 24 -pix_fmt nv12".</summary>
+    public string? HardwareEncoderArgs { get; set; }
+    /// <summary>Let the graphics hardware decode the source too (the other half of the work for HEVC). Only used together with a hardware encoder.</summary>
+    public bool HardwareDecode { get; set; } = true;
     /// <summary>
     /// Subtitles inside a video are extracted to WebVTT once and handed to the browser, which keeps them in its own storage (IndexedDB). The server only holds the
     /// extracted files for a short moment, in this folder (empty = the operating system's temp folder), and deletes them after <see cref="SubtitleStagingMinutes"/>.
@@ -106,4 +115,14 @@ public sealed class SeedSource
     public string? IncludedFolders { get; set; }
     public string? ExcludedFolders { get; set; }
     public bool Enabled { get; set; } = true;
+}
+
+/// <summary>Where the site's look-and-wording settings and uploaded logo live (Admin > Site). Changing the name here only matters before the first save in the admin panel.</summary>
+public sealed class SiteOptions
+{
+    public const string Section = "Site";
+    /// <summary>Folder for site.json, the logo and the favicon. A relative path is inside the project folder, next to the database.</summary>
+    public string Directory { get; set; } = "site-data";
+    /// <summary>The site name used until one is saved in the admin panel.</summary>
+    public string? Name { get; set; }
 }

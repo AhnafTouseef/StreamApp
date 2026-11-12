@@ -1,28 +1,38 @@
+@{
+    var site = Site.Current;
+    var view = site.ViewFor(User.Identity?.IsAuthenticated == true);
+    var pageTitle = ViewData["Title"] is string t && t.Length > 0 ? t + " · " + site.Name : site.Name;
+    var bodyClass = string.Join(' ', new[] { ViewData["BodyClass"] as string, view.BodyClasses, site.Announcement.Length > 0 ? "has-announce" : "" }.Where(x => !string.IsNullOrEmpty(x)));
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0a0c10" />
-    <title>@(ViewData["Title"] is string t && t.Length > 0 ? t + " · MovieHub" : "MovieHub")</title>
+    <meta name="theme-color" content="@site.Background" />
+    @if (site.Tagline.Length > 0) { <meta name="description" content="@site.Tagline" /> }
+    <title>@pageTitle</title>
+    <link rel="icon" href="/brand/favicon?v=@site.Version" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <style>@Html.Raw(site.ThemeCss())@Html.Raw(site.CustomCss)</style>
     @await RenderSectionAsync("Head", required: false)
 </head>
-<body class="@(ViewData["BodyClass"])">
+<body class="@bodyClass">
+    @if (site.Announcement.Length > 0) { <div class="announce" role="note"><span>@site.Announcement</span></div> }
     <header class="site-header" id="site-header">
-        <a class="brand" href="/" aria-label="MovieHub home"><span class="brand-mark">▶</span><span class="brand-name">MovieHub</span></a>
+        <partial name="_Brand" model="@("/")" />
         <button class="nav-toggle" id="nav-toggle" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><span></span><span></span><span></span></button>
         @await Component.InvokeAsync("Nav")
         <form class="header-search" action="/search" method="get" role="search">
-            <input type="search" name="q" placeholder="Search movies" aria-label="Search movies" autocomplete="off" />
+            <input type="search" name="q" placeholder="@site.SearchPlaceholder" aria-label="@site.SearchPlaceholder" autocomplete="off" />
         </form>
     </header>
 
     <main id="main">@RenderBody()</main>
 
     <footer class="site-footer">
-        <span>Movies are streamed directly from the configured local servers. Metadata by TMDB.</span>
-        <a href="/admin">Admin</a>
+        <span>@site.DisplayFooter@(site.ShowTmdbCredit ? " Metadata by TMDB." : "")</span>
+        @if (site.ShowAdminLink) { <a href="/admin">Admin</a> }
     </footer>
 
     <script src="~/js/site.js" asp-append-version="true"></script>

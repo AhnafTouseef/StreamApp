@@ -4,8 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <title>@(ViewData["Title"]) · MovieHub Admin</title>
+    <title>@(ViewData["Title"]) · @Site.Current.Name Admin</title>
+    <link rel="icon" href="/brand/favicon?v=@Site.Current.Version" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <style>@Html.Raw(Site.Current.ThemeCss())</style>
     @if (ViewData["Refresh"] is int seconds) { <meta http-equiv="refresh" content="@seconds" /> }
 </head>
 <body>
@@ -15,11 +17,12 @@
 }
 <div class="admin-shell">
     <aside class="admin-side">
-        <a class="brand" href="/admin"><span class="brand-mark">▶</span><span class="brand-name">Admin</span></a>
+        <partial name="_Brand" model="@("/admin")" view-data='new ViewDataDictionary(ViewData) { ["BrandSub"] = "Admin" }' />
         <a class="@Cls("dashboard")" href="/admin">Dashboard</a>
         <a class="@Cls("library")" href="/admin/library">Library</a>
         <a class="@Cls("scans")" href="/admin/scans">Scans</a>
         <a class="@Cls("movies")" href="/admin/movies">Movies</a>
+        <a class="@Cls("site")" href="/admin/site">Site</a>
         <a class="item" href="/" target="_blank" rel="noopener">View site ↗</a>
         <form method="post" asp-page="/Admin/Logout"><button class="btn btn-ghost btn-sm" type="submit">Sign out</button></form>
     </aside>

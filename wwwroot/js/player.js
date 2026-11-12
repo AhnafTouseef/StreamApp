@@ -58,6 +58,10 @@
   function position() { return offset + (video.currentTime || 0); }
   function setStatus(t) { if (el.status) el.status.textContent = t; }
 
+  // What an administrator has hidden from visitors (Admin > Site): technical details and tips are simply not shown, the player works the same.
+  var ui = cfg.ui || {};
+  function techToast(text) { if (!ui.hideTech) toast(text); }
+  function hintToast(text) { if (!ui.hideHints) toast(text); }
   var toastTimer = null;
   function toast(text, actionLabel, action) {
     el.toast.innerHTML = '';
@@ -114,7 +118,8 @@
       : forceEncode ? 'this browser could not show the copied picture (for example 10-bit video)'
       : oneShotEncode ? 'a copied picture cannot start exactly at the point you jumped to'
       : '';
-    return why ? 'Compatibility mode: the server is re-encoding the picture (' + why + ') and converting the audio. This uses a lot of server CPU.'
+    return why ? 'Compatibility mode: the server is re-encoding the picture (' + why + ') and converting the audio. '
+                 + (cfg.hwEncoder ? 'The re-encode runs on the server\'s graphics hardware (' + cfg.hwEncoder + '), so it is lighter on the CPU.' : 'This uses a lot of server CPU.')
                : 'Compatibility mode: the server copies the picture and only converts the audio (light on CPU).';
   }
   // Can this browser show HEVC? Then the server may copy an HEVC picture instead of re-encoding it (much cheaper). If it turns out not to show, the usual fallback re-encodes.
@@ -179,7 +184,7 @@
     // A remux the viewer asked for (audio switch / English start) failed: go back to plain playback instead of showing an error.
     if (mode === 'remux' && audioIndex !== null && prevMode) {
       var back = prevMode; prevMode = null; audioIndex = null;
-      toast('Could not switch the audio track for this file. Playing the original audio.');
+      techToast('Could not switch the audio track for this file. Playing the original audio.');
       renderAudioMenu();
       load(back, at, true);
       return;
@@ -196,7 +201,8 @@
             : 'This browser cannot play this file, or the source server is unreachable.';
     var hint = cfg.remuxEnabled ? '' :
       ' Containers such as MKV/AVI and codecs such as HEVC or AC3 often are not supported by browsers. Install FFmpeg on the server (or set Media:FfmpegPath) to enable compatibility mode.';
-    fail(why + hint + (cfg.videoCodec ? ' (video: ' + cfg.videoCodec + (cfg.audioCodec ? ', audio: ' + cfg.audioCodec : '') + ', container: ' + String(cfg.extension || '').replace('.', '') + ')' : ''));
+    // the codec / ffmpeg detail is for whoever runs the server; visitors get the plain sentence when it is hidden
+    fail(ui.hideTech ? why : why + hint + (cfg.videoCodec ? ' (video: ' + cfg.videoCodec + (cfg.audioCodec ? ', audio: ' + cfg.audioCodec : '') + ', container: ' + String(cfg.extension || '').replace('.', '') + ')' : ''));
   }
 
   function fail(text) {
@@ -216,14 +222,15 @@
     if (lazyRemux || !expectsPicture() || video.videoWidth) return;
     var at = position();
     if (mode !== 'remux' && cfg.remuxEnabled && !triedModes.remux) {
-      toast('This device cannot show the picture of this file directly. Switching to compatibility mode…');
+      techToast('This device cannot show the picture of this file directly. Switching to compatibility mode…');
       load('remux', at, true);
     } else if (mode === 'remux' && cfg.remuxEnabled && !forceEncode) {
       forceEncode = true;
-      toast('Converting the picture for this device…');
+      techToast('Converting the picture for this device…');
       load('remux', at, true);
     } else {
-      fail('This device cannot decode the picture of this video (video: ' + (cfg.videoCodec || 'unknown') + '). The sound may still play.');
+      fail(ui.hideTech ? 'This device cannot show the picture of this video. The sound may still play.'
+                       : 'This device cannot decode the picture of this video (video: ' + (cfg.videoCodec || 'unknown') + '). The sound may still play.');
     }
   }
   function schedulePicCheck() {
@@ -411,7 +418,12 @@
     return b;
   }
   function heading(menu, text) { var h = document.createElement('h4'); h.textContent = text; menu.appendChild(h); }
-  function note(menu, text) { var d = document.createElement('div'); d.className = 'note'; d.textContent = text; menu.appendChild(d); }
+  // kind: 'tech' (talks about the server, ffmpeg, the dashboard), 'hint' (explains how something works) or 'both'. A hidden note is replaced by `plain` when there is one.
+  function note(menu, text, kind, plain) {
+    var hidden = (kind === 'tech' && ui.hideTech) || (kind === 'hint' && ui.hideHints) || (kind === 'both' && (ui.hideTech || ui.hideHints));
+    if (hidden) { if (!plain) return; text = plain; }
+    var d = document.createElement('div'); d.className = 'note'; d.textContent = text; menu.appendChild(d);
+  }
 
   // ------------------------------------------------------------ speed: continuous 0.25x-4x, logarithmic, snapping to round values
   var SPEED_MIN = 0.25, SPEED_MAX = 4, SPEED_SPAN = Math.log(SPEED_MAX / SPEED_MIN);
@@ -924,9 +936,9 @@
     var emb = embInfo;
     if (emb.preparing && !subTracks.some(function (t) { return t.cues; })) note(m, 'Reading the subtitles inside the video… they will show up in a few seconds.');
     if (emb.failed) note(m, 'The subtitles inside this video could not be read. You can still load a subtitle file.');
-    if (emb.unavailable) note(m, 'Subtitles inside the video need ffmpeg on the server (Admin › Dashboard › Download FFmpeg).');
-    if (emb.unsupported) note(m, emb.unsupported + ' image-based subtitle track(s) (Blu-ray / DVD style) cannot be turned into text, so they cannot be shown here.');
-    if (!subTracks.length && !emb.preparing && !emb.unsupported && !emb.unavailable) note(m, 'No subtitles found for this movie. Load a .srt, .vtt or .ass file, or drop one onto the video.');
+    if (emb.unavailable) note(m, 'Subtitles inside the video need ffmpeg on the server (Admin › Dashboard › Download FFmpeg).', 'tech');
+    if (emb.unsupported) note(m, emb.unsupported + ' image-based subtitle track(s) (Blu-ray / DVD style) cannot be turned into text, so they cannot be shown here.', 'hint');
+    if (!subTracks.length && !emb.preparing && !emb.unsupported && !emb.unavailable) note(m, 'No subtitles found for this movie. Load a .srt, .vtt or .ass file, or drop one onto the video.', 'hint', 'No subtitles found for this movie.');
     var tip = document.getElementById('sub-tip');
     if (tip) tip.hidden = !!subTracks.length || emb.preparing;
   }
@@ -1076,11 +1088,11 @@
         note(m, 'Reading the audio tracks from the file…');
       } else if (audioTracks.length === 1) {
         var only = document.createElement('div'); only.className = 'note'; only.textContent = '• ' + label(audioTracks[0], 0); m.appendChild(only);
-        note(m, 'This file has only one audio track, so there is nothing to switch to. A different file of this movie (see the file list under the player) may have other languages.');
+        note(m, 'This file has only one audio track, so there is nothing to switch to. A different file of this movie (see the file list under the player) may have other languages.', 'hint');
       } else if (!cfg.inspected) {
         note(m, 'The audio tracks of this file are unknown because the server could not read them' +
           (cfg.inspectionError ? ': ' + cfg.inspectionError : '') +
-          '. An administrator can check Dashboard → Media tools (FFprobe must be found), then reopen this page.');
+          '. An administrator can check Dashboard → Media tools (FFprobe must be found), then reopen this page.', 'tech', 'Audio track information is not available for this file.');
       } else {
         note(m, 'No audio information is available for this file.');
       }
@@ -1092,10 +1104,10 @@
       audioTracks.forEach(function (a, i) {
         item(m, label(a, i), a.index === current, function () { chooseAudio(a.index); });
       });
-      note(m, 'Switching restarts playback at the current position; the server converts the sound to stereo AAC.');
+      note(m, 'Switching restarts playback at the current position; the server converts the sound to stereo AAC.', 'both');
     } else {
       audioTracks.forEach(function (a, i) { var b = document.createElement('div'); b.className = 'note'; b.textContent = '• ' + label(a, i); m.appendChild(b); });
-      note(m, 'This file has several audio tracks, but this browser cannot switch between them and the server has no ffmpeg. Install FFmpeg (it ships with FFprobe) or set Media:FfmpegPath, then restart MovieHub.');
+      note(m, 'This file has several audio tracks, but this browser cannot switch between them and the server has no ffmpeg. Install FFmpeg (it ships with FFprobe) or set Media:FfmpegPath, then restart MovieHub.', 'tech', 'This file has several audio tracks, but switching between them is not available here.');
     }
   }
 
@@ -1119,6 +1131,7 @@
     var title = !cfg.remuxEnabled ? 'Compatibility mode is not available: the server has no ffmpeg'
       : on ? 'Compatibility mode is ON: the server converts the video. Click to play the original file instead.'
            : 'Compatibility mode is OFF: playing the original file. Click to let the server convert the video.';
+    if (ui.hideTech) title = 'Compatibility mode';
     var b = el.btnCompat;
     if (b) {
       b.classList.toggle('is-on', on);
@@ -1146,13 +1159,13 @@
     if (on) {
       prevMode = mode;
       triedModes = { remux: true };
-      toast('Compatibility mode on: the server converts the video.');
+      techToast('Compatibility mode on: the server converts the video.');
       load('remux', at, playing);
     } else {
       var hadChoice = audioIndex !== null && audioTracks.length > 1;
       audioIndex = null; prevMode = null; forceEncode = false;
       triedModes = {};
-      toast(hadChoice ? 'Compatibility mode off: playing the original file with its default audio track.' : 'Compatibility mode off: playing the original file.');
+      techToast(hadChoice ? 'Compatibility mode off: playing the original file with its default audio track.' : 'Compatibility mode off: playing the original file.');
       load('direct', at, playing);
     }
     renderAudioMenu();
@@ -1191,7 +1204,8 @@
       case 'c': case 'C':
         if (activeTrack) activate(null);
         else if (lastActiveKey || subTracks.length) activate(lastActiveKey || subTracks[0].key);
-        else toast(embInfo.preparing ? 'Subtitles from the video are still being prepared.' : 'No subtitles for this movie. Load a subtitle file or drop one onto the video.');
+        else if (embInfo.preparing) toast('Subtitles from the video are still being prepared.');
+        else hintToast('No subtitles for this movie. Load a subtitle file or drop one onto the video.');
         break;
       case 'g': case 'G': if (activeTrack) { nudge(-0.1); toast('Subtitle timing ' + fmtOffset(activeTrack.offset)); } break;
       case 'h': case 'H': if (activeTrack) { nudge(0.1); toast('Subtitle timing ' + fmtOffset(activeTrack.offset)); } break;
@@ -1239,7 +1253,7 @@
         if (cfg.remuxEnabled && (mode === 'direct' || mode === 'proxy') && !lazyRemux && position() < 8 && !gSkipPending) {
           if (video.paused && position() < 0.5) startLazyEnglish();
           else startEnglishNow();           // autoplay already began with the file's default track: continue from here with the English one
-        } else if (currentAudioIndex() !== cfg.preferredAudio) toast('English audio found. Use the 🎧 menu to switch to it.');
+        } else if (currentAudioIndex() !== cfg.preferredAudio) hintToast('English audio found. Use the 🎧 menu to switch to it.');
         renderAudioMenu();
       })
       .catch(function () { inspecting = false; renderAudioMenu(); });

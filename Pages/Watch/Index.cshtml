@@ -9,7 +9,7 @@
 <div class="watch-page">
     @if (f == null)
     {
-        <partial name="_EmptyState" model="@("Nothing to play", "No video file is recorded for this entry. An administrator can re-scan its source.")" />
+        <partial name="_EmptyState" model="@("Nothing to play", Site.Current.ViewFor(User.Identity?.IsAuthenticated == true).HideHints ? "No video file is available for this entry right now." : "No video file is recorded for this entry. An administrator can re-scan its source.")" />
         <p style="text-align:center"><a class="btn btn-ghost" href="/movie/@m.Id">Back to details</a></p>
     }
     else
@@ -36,9 +36,9 @@
                     <button type="button" data-step="1">+1 s</button>
                 </div>
                 <input type="range" id="tuner-slider" min="-60" max="60" step="0.05" value="0" aria-label="Subtitle offset in seconds" />
-                <p class="tuner-help">Minus shows subtitles earlier, plus shows them later. Keys: <kbd>G</kbd> earlier, <kbd>H</kbd> later.</p>
+                <p class="tuner-help hint-only">Minus shows subtitles earlier, plus shows them later. Keys: <kbd>G</kbd> earlier, <kbd>H</kbd> later.</p>
                 <button type="button" class="tuner-sync" id="tuner-sync">Sync: the closest line starts right now</button>
-                <p class="tuner-help">Pause exactly when you hear a line begin, then press Sync.</p>
+                <p class="tuner-help hint-only">Pause exactly when you hear a line begin, then press Sync.</p>
                 <label class="tuner-row">Frame-rate fix
                     <select id="tuner-scale" aria-label="Subtitle frame-rate correction">
                         <option value="1">None</option>
@@ -50,7 +50,7 @@
                         <option value="1.001">24 → 23.976 fps</option>
                     </select>
                 </label>
-                <p class="tuner-help">Use when the subtitle starts in sync but drifts further out of sync as the movie goes on.</p>
+                <p class="tuner-help hint-only">Use when the subtitle starts in sync but drifts further out of sync as the movie goes on.</p>
                 <div class="tuner-row">Size
                     <span class="tuner-size"><button type="button" id="size-down" aria-label="Smaller subtitles">A−</button><output id="size-read">100%</output><button type="button" id="size-up" aria-label="Larger subtitles">A+</button></span>
                 </div>
@@ -65,7 +65,7 @@
                     <input type="range" id="volume" min="0" max="1" step="0.05" value="1" aria-label="Volume" />
                     <span class="time"><span id="t-cur">0:00</span> / <span id="t-dur">0:00</span></span>
                     <span class="spacer"></span>
-                    <button class="ctrl-btn ctrl-compat" id="btn-compat" type="button" aria-pressed="false" aria-label="Compatibility mode" title="Compatibility mode: the server converts the video with ffmpeg">Compat</button>
+                    <button class="ctrl-btn ctrl-compat compat-ui" id="btn-compat" type="button" aria-pressed="false" aria-label="Compatibility mode" title="Compatibility mode: the server converts the video with ffmpeg">Compat</button>
                     <div class="menu-wrap"><button class="ctrl-btn" id="btn-sub" type="button" aria-label="Subtitles" title="Subtitles (C)">CC</button><div class="menu" id="menu-sub"></div></div>
                     <div class="menu-wrap"><button class="ctrl-btn" id="btn-audio" type="button" aria-label="Audio track" title="Audio track">🎧</button><div class="menu" id="menu-audio"></div></div>
                     <div class="menu-wrap"><button class="ctrl-btn" id="btn-speed" type="button" aria-label="Playback speed" title="Playback speed ( &lt; and &gt; )">1×</button><div class="menu menu-speed" id="menu-speed"></div></div>
@@ -77,17 +77,17 @@
 
         <div class="watch-info">
             <h1>@m.Title @(m.ReleaseYear.HasValue ? $"({m.ReleaseYear})" : "")</h1>
-            <div class="muted" id="stream-status">Streaming directly from the source server.</div>
-            <div class="compat-row">
+            <div class="muted tech-only" id="stream-status">Streaming directly from the source server.</div>
+            <div class="compat-row compat-ui">
                 <label class="compat-switch" for="compat-switch">
                     <input type="checkbox" id="compat-switch" role="switch" />
                     <span class="compat-track" aria-hidden="true"></span>
                     <span class="compat-label">Compatibility mode: <b id="compat-state">Off</b></span>
                 </label>
-                <span class="muted small" id="compat-hint"></span>
+                <span class="muted small tech-only" id="compat-hint"></span>
             </div>
             <div class="muted">@f.FileName</div>
-            <div class="muted small" id="sub-tip" hidden>No subtitles found for this movie: drag a subtitle file (.srt, .vtt, .ass) onto the video to use one.</div>
+            <div class="muted small hint-only" id="sub-tip" hidden>No subtitles found for this movie: drag a subtitle file (.srt, .vtt, .ass) onto the video to use one.</div>
             @if (m.MediaFiles.Count > 1)
             {
                 <div class="picker" aria-label="Choose file">

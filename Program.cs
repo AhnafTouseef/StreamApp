@@ -26,6 +26,7 @@ services.Configure<CrawlerOptions>(config.GetSection(CrawlerOptions.Section));
 services.Configure<MediaOptions>(config.GetSection(MediaOptions.Section));
 services.Configure<AdminOptions>(config.GetSection(AdminOptions.Section));
 services.Configure<SeedOptions>(config.GetSection(SeedOptions.Section));
+services.Configure<SiteOptions>(config.GetSection(SiteOptions.Section));
 services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(20));
 
 var crawlerOpts = config.GetSection(CrawlerOptions.Section).Get<CrawlerOptions>() ?? new CrawlerOptions();
@@ -67,6 +68,8 @@ services.AddSingleton<OmdbClient>();
 services.AddSingleton<ToolDirectories>();
 services.AddSingleton<FfprobeRunner>();
 services.AddSingleton<FfmpegTool>();
+services.AddSingleton<HardwareEncoder>();
+services.AddHostedService<HardwareEncoderWarmup>();
 services.AddSingleton<EmbeddedSubtitleService>();
 services.AddSingleton<MediaInspectionService>();
 services.AddSingleton<InspectionBackfill>();
@@ -79,6 +82,12 @@ services.AddSingleton<CrawlerService>();
 services.AddSingleton<ScanCoordinator>();
 services.AddSingleton<CategoryService>();
 services.AddSingleton<AdminAuthService>();
+services.AddSingleton(sp =>
+{
+    var site = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SiteOptions>>().Value;
+    var dir = Path.IsPathRooted(site.Directory) ? site.Directory : Path.Combine(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath, site.Directory);
+    return new SiteSettingsService(dir, site.Name, sp.GetRequiredService<ILogger<SiteSettingsService>>());
+});
 services.AddSingleton<LoginThrottle>();
 services.AddSingleton<IMediaLookup, EfMediaLookup>();
 services.AddSingleton<SearchIndex>();
@@ -140,6 +149,20 @@ app.MapGet("/api/suggest", async (string? q, MovieService movies, HttpContext ct
     var rows = await movies.SuggestAsync(text, 8, ctx.RequestAborted);
     ctx.Response.Headers.CacheControl = "private, max-age=30";
     return Results.Json(rows.Select(r => new { id = r.Id, title = r.Title, year = r.Year, poster = r.PosterUrl, category = r.CategoryName }));
+});
+// The uploaded logo / favicon. ?v=<version> in the page makes the browser keep them for a long time and fetch the new one right after a change.
+app.MapGet("/brand/{kind}", (string kind, SiteSettingsService site, HttpContext ctx) =>
+{
+    var which = kind.ToLowerInvariant();
+    var asset = which switch { "logo" => site.ReadImage(BrandImage.Logo), "favicon" => site.ReadImage(BrandImage.Favicon), _ => null };
+    if (asset == null)
+    {
+        if (which != "favicon") return Results.NotFound();
+        return Results.Text(site.Current.DefaultFaviconSvg(), "image/svg+xml");   // no upload: a favicon drawn from the accent colour and mark
+    }
+    ctx.Response.Headers.CacheControl = ctx.Request.Query.ContainsKey("v") ? "public, max-age=31536000, immutable" : "public, max-age=300";
+    ctx.Response.Headers.ContentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; sandbox";   // an SVG opened on its own page cannot run anything
+    return Results.Bytes(asset.Bytes, asset.ContentType);
 });
 app.MapMediaEndpoints();
 

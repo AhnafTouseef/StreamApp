@@ -204,7 +204,14 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 | `Media:FfprobePath` / `FfmpegPath` | empty / empty | leave empty to use the project's tools folder, then PATH. A value is used exclusively (no fallback) |
 | `Media:ToolsDirectory` | `tools` | folder (relative to the project) that holds ffmpeg and ffprobe |
 | `Media:FfmpegDownloadUrl` | gyan.dev release-essentials zip | what the admin "Download FFmpeg" button fetches (https only) |
-| `Media:ProbeTimeoutSeconds`, `MaxConcurrentProbes`, `MaxRemuxSessions` | 90, 2, 2 | limits |
+| `Media:ProbeTimeoutSeconds`, `MaxConcurrentProbes` | 90, 2 | limits |
+| `Media:MaxRemuxSessions` | 0 | most compatibility streams that only copy the picture (0 = no limit; they cost a few percent of a core each) |
+| `Media:MaxEncodeSessions` | 0 | most streams that re-encode the picture at once (0 = automatic: half the CPU threads, at least 1 — or, when a hardware encoder is in use, the CPU thread count, at least 2; -1 = no limit). A stream waits a few seconds for a free slot, then gets a 503 "busy" instead of silently failing |
+| `Media:HardwareEncoder` | auto | where a full picture re-encode runs: `auto` tries NVIDIA NVENC, Intel Quick Sync, AMD AMF (Linux: VAAPI) with a real half-second test encode and uses the first that works; `none` = always the CPU (libx264); `nvenc`, `qsv`, `amf`, `vaapi` = only that one; `custom` = use `Media:HardwareEncoderArgs` |
+| `Media:HardwareEncoderArgs` | empty | ffmpeg video arguments for `custom`, e.g. `-c:v h264_qsv -preset veryfast -global_quality 24 -pix_fmt nv12` |
+| `Site:Directory` | site-data | folder for the site settings and the uploaded logo/favicon (Admin > Site) |
+| `Site:Name` | empty | site name used until one is saved in Admin > Site |
+| `Media:HardwareDecode` | true | also let the graphics hardware decode the source (`-hwaccel auto`); this is the half that matters most for HEVC |
 | `Admin:Username`, `PasswordHash`, `Password`, `SessionHours` | admin, –, –, 8 | admin login |
 | `Seed:Sources[]` | the two ISP servers | sources created on first start (name, category slug, URL, strategy, cooldown, include/exclude) |
 
@@ -239,6 +246,31 @@ ffmpeg and ffprobe are looked up in this order, and both are looked up the same 
 To set up: start the site, sign in, open **Admin > Dashboard** and press **Download FFmpeg into the project** (Windows). Or copy `ffmpeg.exe` and
 `ffprobe.exe` into `MovieHub\tools` yourself and press **Check again** (no restart needed). To move to a new computer, copy the whole project folder;
 the tools go with it. The binaries are git-ignored, so they are not committed.
+
+## Site: name, logo, colours and what visitors see
+
+Admin > **Site** changes how the site looks and what it says, without editing any file. Everything applies to every page as soon as you save.
+
+- **Hide debugging details and hints** (one button). Hides the playback status line, codec and server details in error messages, notes that mention ffmpeg or the dashboard, the source-folder line on a movie page, and the how-to texts and tips (subtitle loading help, timing help, "close matches" notes, menu explanations). Fine tuning: *Hide debugging details* and *Hide hints and tips* can be set separately, *Hide the compatibility-mode switch and button* is its own option (playback still switches to compatibility mode by itself when a device needs it), and *Still show everything to me when I am signed in* lets you keep seeing it all on your own devices.
+- **Name and logo.** Site name (header, browser tab, admin area), tagline (search-engine description), logo upload (PNG, JPG, GIF, WebP or SVG, up to 2 MB), logo height, header display (logo and name, logo only, name only), the symbol used when there is no logo, and a separate favicon (PNG, SVG or ICO, up to 512 KB). Without an uploaded favicon the logo is used, and without a logo a small icon is drawn from the accent colour and symbol.
+- **Colours.** Accent, lighter accent, page background, panels and text, with a live preview. The other shades (borders, secondary text) are worked out from these. The theme is designed for dark backgrounds.
+- **Wording.** The label above the featured movie, the search box placeholder, an announcement bar shown on every page, the footer text, and switches for the "Metadata by TMDB" credit (TMDB asks sites using its data to credit it) and the footer Admin link (open `/admin` yourself if you hide it).
+- **Custom CSS** for anything else. It is added after the normal styles. If a rule breaks the layout, empty the box and save.
+- **Reset everything to default** returns to the original look and removes the uploaded images.
+
+Where it is stored: `site.json` and the uploaded images live in the folder `Site:Directory` (default `site-data`, inside the project, next to the database). The database is not touched, so updating the app never needs a migration. Back up or move that folder together with `moviehub.db`. `Site:Name` in `appsettings.json` only sets the name used until one is saved in the admin panel.
+
+Uploaded images are checked by their content, not their name; an SVG that contains scripts or event handlers is refused, and images are served with a header that stops them running anything.
+
+## Hardware re-encoding
+
+Copying the picture (the usual compatibility-mode case) needs no encoder at all. When the picture *must* be re-encoded (10-bit video, HEVC the browser cannot show, a jump that a copied picture cannot start exactly at), the server uses the graphics hardware if it can, so the CPU stays free for other viewers.
+
+- **Detection:** once after startup (and again if the admin installs a different FFmpeg) the server runs a real test encode with each candidate encoder. An encoder that FFmpeg lists but the machine cannot run is skipped. The result is in the log (`Hardware video encoder: Intel Quick Sync…` or `No hardware video encoder found…`).
+- **Fallback:** if a stream produces no video on the hardware encoder, the same request is started again with the software encoder; the viewer is not shown an error. The hardware encoder is then left alone for 10 minutes. If the software encoder also produces nothing (the source server refused, for example) the hardware encoder is *not* blamed.
+- **Budget:** hardware re-encodes use their own, larger slot budget (see `Media:MaxEncodeSessions`).
+- **Status line:** the player says when the re-encode runs on the graphics hardware.
+- **What it cannot promise:** picture quality at the same CRF differs slightly between encoders, and the exact speed depends on the GPU and its driver. Quick Sync on an Intel UHD 620 laptop supports H.264 encoding and HEVC decoding; the first time you use it, check the log line above and try an HEVC file with compatibility mode on.
 
 ## 5. Deployment notes
 - Put it behind a reverse proxy with HTTPS if exposed beyond your LAN. The streaming proxy is not rate-limited.

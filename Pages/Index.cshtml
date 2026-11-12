@@ -13,9 +13,17 @@
 }
 @if (Model.Home.TotalMovies == 0)
 {
+    var adminView = Site.Current.ViewFor(User.Identity?.IsAuthenticated == true);
     <div class="page">
-        <partial name="_EmptyState" model="@("The catalog is empty", "No movies have been indexed yet. Sign in to the admin panel, check that your sources are enabled and run a scan. Movies appear here as soon as the first scan finishes.")" />
-        <p style="text-align:center"><a class="btn btn-primary" href="/admin">Open admin panel</a></p>
+        @if (adminView.HideHints)
+        {
+            <partial name="_EmptyState" model="@("Nothing here yet", "No movies are available right now. Please check back soon.")" />
+        }
+        else
+        {
+            <partial name="_EmptyState" model="@("The catalog is empty", "No movies have been indexed yet. Sign in to the admin panel, check that your sources are enabled and run a scan. Movies appear here as soon as the first scan finishes.")" />
+            <p style="text-align:center"><a class="btn btn-primary" href="/admin">Open admin panel</a></p>
+        }
     </div>
 }
 else
@@ -29,7 +37,7 @@ else
             </div>
             <div class="hero-body">
                 <div class="hero-copy">
-                    <div class="hero-eyebrow">Featured</div>
+                    @if (Site.Current.HeroLabel.Length > 0) { <div class="hero-eyebrow">@Site.Current.HeroLabel</div> }
                     <h1 data-f="title">@first.Title</h1>
                     <div class="meta-line">
                         <span data-f="year">@first.Year</span>

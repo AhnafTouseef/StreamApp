@@ -1,0 +1,128 @@
+@page "/admin/site"
+@model MovieHub.Pages.Admin.SiteModel
+@using MovieHub.Services
+@{ ViewData["Title"] = "Site"; ViewData["Active"] = "site"; var c = Model.Current; var bothHidden = c.HideTechnicalDetails && c.HideHints; }
+<h1>Site</h1>
+<p class="muted">What visitors see, and how the site looks. Changes apply to every page as soon as you save.</p>
+
+<div class="panel">
+    <h3>Visitor view</h3>
+    <p style="margin-top:0">Status lines, technical error details, the compatibility-mode explanations, and the tips and how-to texts are meant for whoever runs the server. One click hides them from visitors.</p>
+    <p class="muted">Right now: debugging details are <strong>@(c.HideTechnicalDetails ? "hidden" : "shown")</strong>, hints are <strong>@(c.HideHints ? "hidden" : "shown")</strong>.</p>
+    @if (bothHidden)
+    {
+        <form method="post" asp-page-handler="ShowAll" class="inline"><button class="btn btn-ghost" type="submit">Show them again</button></form>
+    }
+    else
+    {
+        <form method="post" asp-page-handler="HideAll" class="inline"><button class="btn btn-primary" type="submit">Hide debugging details and hints</button></form>
+    }
+</div>
+
+<form method="post" asp-page-handler="Save" enctype="multipart/form-data">
+<div class="panel">
+    <h3>What visitors do not see</h3>
+    <div class="form-grid">
+        <div class="field wide"><label><input type="checkbox" asp-for="Input.HideTechnicalDetails" /> Hide debugging details</label>
+            <span class="hint">The playback status line (“Streaming directly…”, “Compatibility mode: the server is re-encoding…”), codec and server details in error messages, notes that mention ffmpeg or the dashboard, and the line saying which source folder a movie comes from.</span></div>
+        <div class="field wide"><label><input type="checkbox" asp-for="Input.HideHints" /> Hide hints and tips</label>
+            <span class="hint">How-to texts: loading subtitle files, the subtitle timing help, “close matches” notes in search, explanations in the audio and subtitle menus. The empty home page also stops pointing visitors to the admin panel.</span></div>
+        <div class="field wide"><label><input type="checkbox" asp-for="Input.HideCompatibilityControls" /> Hide the compatibility-mode switch and button</label>
+            <span class="hint">Playback still switches to compatibility mode by itself when a device needs it. Only the manual switch disappears.</span></div>
+        <div class="field wide"><label><input type="checkbox" asp-for="Input.ShowAllToSignedInAdmin" /> Still show everything to me when I am signed in</label>
+            <span class="hint">Handy for debugging on your own devices. Leave it off to see exactly what visitors see.</span></div>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>Name and logo</h3>
+    <div class="form-grid">
+        <div class="field"><label for="n">Site name</label><input id="n" asp-for="Input.Name" maxlength="60" required /><span class="hint">Shown in the header, the browser tab and the admin area.</span></div>
+        <div class="field"><label for="tg">Tagline</label><input id="tg" asp-for="Input.Tagline" maxlength="200" /><span class="hint">A short description for search engines and link previews. Optional.</span></div>
+        <div class="field"><label for="lm">Header shows</label>
+            <select id="lm" name="Input.LogoMode">
+                <option value="LogoAndName" selected="@(c.LogoMode == LogoMode.LogoAndName)">Logo and name</option>
+                <option value="LogoOnly" selected="@(c.LogoMode == LogoMode.LogoOnly)">Logo only</option>
+                <option value="NameOnly" selected="@(c.LogoMode == LogoMode.NameOnly)">Name only</option>
+            </select><span class="hint">With no logo uploaded, the name (and the symbol below) is shown.</span></div>
+        <div class="field"><label for="lh">Logo height: <output id="lh-out">@c.LogoHeight</output> px</label><input id="lh" type="range" min="16" max="80" step="2" asp-for="Input.LogoHeight" /></div>
+        <div class="field"><label for="bm">Symbol when there is no logo</label><input id="bm" asp-for="Input.BrandMark" maxlength="3" /><span class="hint">Up to 3 characters in the small coloured square. Empty = no square.</span></div>
+        <div class="field wide">
+            <label for="lf">Logo image</label>
+            @if (c.HasLogo)
+            {
+                <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px">
+                    <span style="background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 12px"><img src="/brand/logo?v=@c.Version" alt="Current logo" style="height:@(c.LogoHeight)px;width:auto;max-width:260px;object-fit:contain" /></span>
+                    <button class="btn btn-ghost btn-sm" type="submit" formaction="?handler=RemoveLogo" formnovalidate>Remove logo</button>
+                </div>
+            }
+            <input id="lf" type="file" name="LogoUpload" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" />
+            <span class="hint">PNG, JPG, GIF, WebP or SVG, up to 2 MB. A transparent PNG or SVG works best on the dark header. The height above sets its size.</span>
+        </div>
+        <div class="field wide">
+            <label for="ff">Favicon (the small icon in the browser tab)</label>
+            @if (c.FaviconFile != null)
+            {
+                <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
+                    <img src="/brand/favicon?v=@c.Version" alt="Current favicon" style="height:32px;width:32px;object-fit:contain" />
+                    <button class="btn btn-ghost btn-sm" type="submit" formaction="?handler=RemoveFavicon" formnovalidate>Remove favicon</button>
+                </div>
+            }
+            <input id="ff" type="file" name="FaviconUpload" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon,.ico" />
+            <span class="hint">PNG, SVG or ICO, up to 512 KB. Without one, the logo is used; without a logo, a small icon is drawn from your accent colour and symbol.</span>
+        </div>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>Colours</h3>
+    <div class="form-grid">
+        <div class="field"><label for="c1">Accent (buttons, highlights)</label><input id="c1" type="color" asp-for="Input.Accent" data-var="--accent" /></div>
+        <div class="field"><label for="c2">Accent, lighter (hover, links)</label><input id="c2" type="color" asp-for="Input.AccentLight" data-var="--accent-2" /></div>
+        <div class="field"><label for="c3">Page background</label><input id="c3" type="color" asp-for="Input.Background" data-var="--bg" /></div>
+        <div class="field"><label for="c4">Panels and menus</label><input id="c4" type="color" asp-for="Input.Panel" data-var="--bg-2" /></div>
+        <div class="field"><label for="c5">Text</label><input id="c5" type="color" asp-for="Input.Text" data-var="--text" /></div>
+    </div>
+    <div class="site-preview" id="preview" aria-label="Preview of the colours">
+        <span class="brand"><span class="brand-mark">@(c.BrandMark.Length > 0 ? c.BrandMark : "▶")</span><span class="brand-name">@c.Name</span></span>
+        <span class="btn btn-primary btn-sm">Watch Now</span>
+        <span class="chip">Drama</span>
+        <span class="muted">Secondary text</span>
+    </div>
+    <p class="hint muted" style="margin-bottom:0">The theme is designed for dark backgrounds. Very light backgrounds work, but some overlays on posters will still look dark.</p>
+</div>
+
+<div class="panel">
+    <h3>Wording</h3>
+    <div class="form-grid">
+        <div class="field"><label for="hl">Label above the featured movie</label><input id="hl" asp-for="Input.HeroLabel" maxlength="40" /><span class="hint">Default “Featured”. Empty = no label.</span></div>
+        <div class="field"><label for="sp">Search box placeholder</label><input id="sp" asp-for="Input.SearchPlaceholder" maxlength="60" /></div>
+        <div class="field wide"><label for="an">Announcement bar</label><input id="an" asp-for="Input.Announcement" maxlength="300" /><span class="hint">A line shown at the top of every page (“Server maintenance on Friday night”). Empty = no bar.</span></div>
+        <div class="field wide"><label for="ft">Footer text</label><input id="ft" asp-for="Input.FooterText" maxlength="300" placeholder="@SiteSettings.DefaultFooter" /><span class="hint">Empty = the default sentence shown as the placeholder.</span></div>
+        <div class="field wide"><label><input type="checkbox" asp-for="Input.ShowTmdbCredit" /> Show “Metadata by TMDB” in the footer</label><span class="hint">TMDB asks every site that uses its data to credit it, so keep this on unless you give the credit somewhere else.</span></div>
+        <div class="field wide"><label><input type="checkbox" asp-for="Input.ShowAdminLink" /> Show the “Admin” link in the footer</label><span class="hint">If you hide it, open <code>/admin</code> yourself to sign in.</span></div>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>Advanced: custom CSS</h3>
+    <div class="field wide"><textarea asp-for="Input.CustomCss" rows="7" spellcheck="false" style="font-family:ui-monospace,Consolas,monospace" placeholder=".brand-name { letter-spacing: .1em; }"></textarea>
+        <span class="hint">Added to every public page after the normal styles, so it can override anything. Up to 20,000 characters. If a rule breaks the layout, empty this box and save.</span></div>
+</div>
+
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 14px">
+    <button class="btn btn-primary" type="submit">Save changes</button>
+    <button class="btn btn-ghost" type="submit" formaction="?handler=Reset" formnovalidate onclick="return confirm('Reset the name, logo, colours and wording to their defaults?')">Reset everything to default</button>
+</div>
+<p class="muted small">Saved in <code>@Model.StorageDirectory</code>, next to the database. Back up or move that folder with the rest of the project.</p>
+</form>
+
+<script>
+(function () {
+  var p = document.getElementById('preview'); if (!p) return;
+  function apply(i) { p.style.setProperty(i.getAttribute('data-var'), i.value); if (i.getAttribute('data-var') === '--bg') p.style.background = i.value; if (i.getAttribute('data-var') === '--text') p.style.color = i.value; }
+  document.querySelectorAll('input[data-var]').forEach(function (i) { i.addEventListener('input', function () { apply(i); }); apply(i); });
+  var h = document.getElementById('lh'), o = document.getElementById('lh-out');
+  if (h && o) h.addEventListener('input', function () { o.textContent = h.value; });
+})();
+</script>

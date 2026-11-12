@@ -1,0 +1,14 @@
+@* The site name and logo, as the administrator set them up (Admin > Site). Model: the address the link goes to. ViewData["BrandSub"]: a small label after the name (the admin area uses "Admin"). *@
+@model string
+@{
+    var s = Site.Current;
+    var showLogo = s.HasLogo && s.LogoMode != MovieHub.Services.LogoMode.NameOnly;
+    var showName = !showLogo || s.LogoMode == MovieHub.Services.LogoMode.LogoAndName;
+    var showMark = !showLogo && s.LogoMode != MovieHub.Services.LogoMode.NameOnly && s.BrandMark.Length > 0;
+}
+<a class="brand" href="@Model" aria-label="@s.Name">
+    @if (showLogo) { <img class="brand-logo" src="/brand/logo?v=@s.Version" alt="@(showName ? "" : s.Name)" /> }
+    @if (showMark) { <span class="brand-mark" aria-hidden="true">@s.BrandMark</span> }
+    @if (showName) { <span class="brand-name">@s.Name</span> }
+    @if (ViewData["BrandSub"] is string sub) { <span class="brand-sub">@sub</span> }
+</a>
