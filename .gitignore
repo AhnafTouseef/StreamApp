@@ -8,7 +8,7 @@ obj/
 *.user
 appsettings.Production.json
 secrets.json
-site.json
+site-data/
 
 # FFmpeg binaries live in tools/ but are not committed
 tools/*

@@ -130,15 +130,7 @@ public static class MediaEndpoints
         if (!policy.IsAllowed(file.Url)) return Results.StatusCode(403);
         if (t < 0 || double.IsNaN(t) || double.IsInfinity(t)) return Results.BadRequest("Invalid start time.");
 
-        var audioTracks = file.Streams.Where(s => s.Kind == StreamKind.Audio).OrderBy(s => s.Index).ToList();
-        StreamRow? audioStream;
-        if (audio.HasValue) audioStream = audioTracks.FirstOrDefault(s => s.Index == audio.Value);
-        else
-        {
-            // No explicit choice: start with English when the file has an English track, otherwise the file's default.
-            var pick = AudioPreference.Choose(audioTracks, s => s.Language, s => s.Title, s => s.IsDefault);
-            audioStream = pick >= 0 ? audioTracks[pick] : null;
-        }
+        var audioStream = PickAudio(file.Streams, audio);
         var videoStream = file.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
         if (audio.HasValue && audioStream == null) return Results.BadRequest("Unknown audio stream.");
 
@@ -164,7 +156,10 @@ public static class MediaEndpoints
             {
                 try
                 {
-                    var (v0, a0) = await FirstPacketTimesAsync(ffmpeg.Path!, file.Url, t, audioStream.Index, ctx.RequestAborted);
+                    // The seek lookup (/start) usually measured this already while it was finding the keyframe, so the stream does not have to wait for a second look.
+                    if (!SyncTimes.TryGet(fileId, t, audioStream.Index, out var times))
+                        times = await FirstPacketTimesAsync(ffmpeg.Path!, file.Url, t, audioStream.Index, ctx.RequestAborted);
+                    var (v0, a0) = times;
                     if (v0 is { } vs && a0 is { } au && Math.Abs(au - vs) <= AudioSyncToleranceSeconds) { copyAudio = true; audioWhy = "ok"; }
                     else audioWhy = v0 is { } v1 && a0 is { } a1 ? $"the sound starts {a1 - v1:+0.00;-0.00} s from the picture" : "the start of the sound could not be measured";
                 }
@@ -398,7 +393,7 @@ public static class MediaEndpoints
     /// </summary>
     private static async Task<IResult> RemuxStartAsync(
         int fileId, double t, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg,
-        SourcePolicy policy, ILogger<MediaLog> log, string? video = null, string? hevc = null)
+        SourcePolicy policy, ILogger<MediaLog> log, string? video = null, string? hevc = null, int? audio = null, string? acopy = null)
     {
         ctx.Response.Headers["Cache-Control"] = "no-store";
         if (t <= 0 || double.IsNaN(t) || double.IsInfinity(t)) return Results.Json(new { start = 0.0, at = 0.0, encode = false });
@@ -410,16 +405,32 @@ public static class MediaEndpoints
         var copying = CanCopyVideo(videoStream?.Codec, hevc == "1") && !_alwaysEncode && !string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase);
         if (!copying || !ffmpeg.IsAvailable) return Results.Json(new { start = t, at = t, encode = false });   // a re-encoded picture can start exactly at t
 
+        // Where the copy lands, whether that is a clean restart point and (when the sound may be copied too) where the sound starts do not depend on each other,
+        // so they are looked up together. Each one opens the movie over the network, which is most of the wait; one after another they added up.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+        Task<double?>? landingTask = null;
+        Task<bool>? brokenTask = null;
+        Task<(double? Video, double? Audio)>? syncTask = null;
         try
         {
-            var first = await FirstCopiedPacketAsync(ffmpeg.Path!, file.Url, t, ctx.RequestAborted);
+            landingTask = FirstCopiedPacketAsync(ffmpeg.Path!, file.Url, t, cts.Token);
+            brokenTask = LandsOnBrokenKeyframeAsync(ffmpeg.Path!, file.Url, t, cts.Token);
+            var sound = acopy == "1" && _copyAudio ? PickAudio(file.Streams, audio) : null;
+            if (sound != null && CanCopyAudio(sound.Codec, sound.Channels)) syncTask = FirstPacketTimesAsync(ffmpeg.Path!, file.Url, t, sound.Index, cts.Token);
+
+            var first = await landingTask;
             if (first is { } landing)
             {
                 landing = Math.Max(0, Math.Min(landing, t));
                 // A copy that would start this far before the requested point shows the wrong part of the movie: re-encode instead (exact).
                 if (t - landing > MaxCopySeekGapSeconds) return Results.Json(new { start = t, at = t, encode = true });
                 // A seek that lands on a keyframe which is not a clean restart point (open GOP: pictures that reference frames before it) cannot be played by browsers: re-encode instead.
-                if (await LandsOnBrokenKeyframeAsync(ffmpeg.Path!, file.Url, t, ctx.RequestAborted)) return Results.Json(new { start = t, at = t, encode = true });
+                if (await brokenTask) return Results.Json(new { start = t, at = t, encode = true });
+                if (syncTask != null)
+                {
+                    try { SyncTimes.Put(fileId, t, sound!.Index, await syncTask); }
+                    catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) { /* the stream measures it itself */ }
+                }
                 // The landing point depends on the exact seek value (indexes round their timestamps), so the stream is requested with this very same t.
                 return Results.Json(new { start = landing, at = t, encode = false });   // the stream is requested with the same t, so it lands exactly here
             }
@@ -429,7 +440,54 @@ public static class MediaEndpoints
         {
             log.LogWarning("Seek lookup for file {FileId} at {T}s failed: {Message}", fileId, t, ex.Message);
         }
+        finally
+        {
+            cts.Cancel();   // a lookup whose answer is no longer needed (the answer is already decided, or the viewer jumped again) is stopped
+            await Task.WhenAll(Quiet(landingTask), Quiet(brokenTask), Quiet(syncTask));
+        }
         return Results.Json(new { start = t, at = t, encode = true });   // could not tell where a copy would start: the exact (re-encoded) way is safe
+    }
+
+    private static async Task Quiet(Task? task)
+    {
+        if (task == null) return;
+        try { await task; } catch { /* its outcome no longer matters */ }
+    }
+
+    /// <summary>The audio track a stream uses: the one asked for, or (no choice) English when the file has an English track, otherwise the file's default.</summary>
+    internal static StreamRow? PickAudio(IEnumerable<StreamRow> streams, int? audio)
+    {
+        var tracks = streams.Where(s => s.Kind == StreamKind.Audio).OrderBy(s => s.Index).ToList();
+        if (audio.HasValue) return tracks.FirstOrDefault(s => s.Index == audio.Value);
+        var pick = AudioPreference.Choose(tracks, s => s.Language, s => s.Title, s => s.IsDefault);
+        return pick >= 0 ? tracks[pick] : null;
+    }
+
+    /// <summary>
+    /// Where the picture and the sound start for a seek, measured by the seek lookup (/start) so the stream that follows a moment later does not have to measure it again.
+    /// Short-lived and small: a value only helps the request that comes right after.
+    /// </summary>
+    internal static class SyncTimes
+    {
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, (double? Video, double? Audio) Times)> Items = new();
+        private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(2);
+        private static string Key(int fileId, double t, int audioIndex) => $"{fileId}|{t.ToString("0.###", CultureInfo.InvariantCulture)}|{audioIndex}";
+
+        public static void Put(int fileId, double t, int audioIndex, (double? Video, double? Audio) times)
+        {
+            var now = DateTime.UtcNow;
+            if (Items.Count > 64) foreach (var kv in Items) if (now - kv.Value.At > Lifetime) Items.TryRemove(kv.Key, out _);
+            if (Items.Count > 256) Items.Clear();   // never grows without bound, whatever is requested
+            Items[Key(fileId, t, audioIndex)] = (now, times);
+        }
+
+        public static bool TryGet(int fileId, double t, int audioIndex, out (double? Video, double? Audio) times)
+        {
+            times = default;
+            if (!Items.TryGetValue(Key(fileId, t, audioIndex), out var e) || DateTime.UtcNow - e.At > Lifetime) return false;
+            times = e.Times;
+            return true;
+        }
     }
 
     /// <summary>The time of the first picture ffmpeg copies when told to start at <paramref name="seek"/>, found with the same seek the real stream uses.</summary>

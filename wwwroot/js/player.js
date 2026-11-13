@@ -55,7 +55,11 @@
   }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function duration() { return knownDuration || (isFinite(video.duration) ? video.duration + offset : 0); }
-  function position() { return offset + (video.currentTime || 0); }
+  // After a jump in compatibility mode the new stream takes a moment to arrive (the server looks up where to restart first). Until it does, the clicked point is
+  // the position: the bar, the clock and the subtitles go there at once instead of waiting, and the old stream playing on does not pull them back.
+  var pendingPos = null, awaitingNew = false, startAbort = null;
+  function position() { return pendingPos !== null ? pendingPos : offset + (video.currentTime || 0); }
+  function settleJump() { pendingPos = null; awaitingNew = false; }
   function setStatus(t) { if (el.status) el.status.textContent = t; }
 
   // What an administrator has hidden from visitors (Admin > Site): technical details and tips are simply not shown, the player works the same.
@@ -222,10 +226,17 @@
     mode = m; triedModes[m] = true;
     updateCompatButton();
     var seq = ++loadSeq;
+    if (startAbort) { try { startAbort.abort(); } catch (_) { } startAbort = null; }   // a lookup for an earlier jump is no longer wanted (the server stops it too)
+    if (m === 'remux' && startAt > 0) { pendingPos = startAt; awaitingNew = false; updateTime(); }   // the bar goes to the clicked point now
+    else settleJump();
     if (m === 'remux' && startAt > 0 && pictureCopyOn()) {
       hideMessage();
       player.classList.add('is-loading');
-      fetch(cfg.remuxUrl + '/start?t=' + startAt.toFixed(2) + (hevcOk && isHevc(cfg.videoCodec) ? '&hevc=1' : ''), { credentials: 'same-origin' })
+      // The same choices the stream will use, so the server can measure the sound's timing during this lookup instead of after it.
+      var ask = '/start?t=' + startAt.toFixed(2) + (hevcOk && isHevc(cfg.videoCodec) ? '&hevc=1' : '')
+        + (audioIndex !== null ? '&audio=' + audioIndex : '') + (audioCopyOn() ? '&acopy=1' : '');
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null; startAbort = ctl;
+      fetch(cfg.remuxUrl + ask, { credentials: 'same-origin', signal: ctl ? ctl.signal : undefined })
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
         .then(function (d) {
@@ -243,6 +254,7 @@
 
   function begin(m, startAt, requestAt, autoplay) {
     offset = m === 'remux' ? (startAt || 0) : 0;
+    if (pendingPos !== null) awaitingNew = true; else awaitingNew = false;   // the first picture of this stream ends the wait (see 'loadeddata')
     var src = urlFor(m, requestAt || 0);
     if (!src) { fail('This movie\'s source address is not approved or missing.'); return; }
     hideMessage();
@@ -295,6 +307,7 @@
   }
 
   function fail(text) {
+    settleJump();
     player.classList.remove('is-loading');
     el.msgTitle.textContent = 'Cannot play this video';
     el.msgText.textContent = text;
@@ -363,6 +376,7 @@
       }
     } catch (_) { /* buffered not available yet */ }
   }
+  video.addEventListener('loadeddata', function () { if (awaitingNew) { settleJump(); updateTime(); } });
   video.addEventListener('timeupdate', updateTime);
   video.addEventListener('progress', updateTime);
   video.addEventListener('durationchange', updateTime);
