@@ -26,7 +26,7 @@
     subs: $('subs'), toast: $('player-toast'), file: $('sub-file'),
     tuner: $('tuner'), tunerClose: $('tuner-close'), tunerTrack: $('tuner-track'), tunerOffset: $('tuner-offset'),
     tunerSlider: $('tuner-slider'), tunerSync: $('tuner-sync'), tunerScale: $('tuner-scale'), tunerReset: $('tuner-reset'),
-    sizeDown: $('size-down'), sizeUp: $('size-up'), sizeRead: $('size-read'), btnCompat: $('btn-compat'), compatSwitch: $('compat-switch'), compatState: $('compat-state'), compatHint: $('compat-hint')
+    sizeDown: $('size-down'), sizeUp: $('size-up'), sizeRead: $('size-read'), btnCompat: $('btn-compat'), compatSwitch: $('compat-switch'), compatState: $('compat-state'), compatHint: $('compat-hint'), speedRow: $('speed-row'), speedBtns: $('speed-btns')
   };
 
   var mode = 'direct';          // direct | proxy | remux
@@ -83,8 +83,9 @@
     var q = [];
     if (audioIndex !== null) q.push('audio=' + audioIndex);
     if (hevcOk && isHevc(cfg.videoCodec)) q.push('hevc=1');   // this browser can show HEVC: let the server copy the picture
-    if (forceEncode || oneShotEncode) q.push('video=encode');
+    if (forceEncode || oneShotEncode || !pictureCopyOn()) q.push('video=encode');
     else if (m === 'remux' && startAt > 0 && copyStart !== null) q.push('k=' + copyStart.toFixed(3));
+    if (audioCopyOn()) q.push('acopy=1');   // copy the sound as it is (the server still converts it when its timing would not line up)
     if (startAt > 0) q.push('t=' + startAt.toFixed(2));
     return cfg.remuxUrl + (q.length ? '?' + q.join('&') : '');
   }
@@ -118,10 +119,94 @@
       : forceEncode ? 'this browser could not show the copied picture (for example 10-bit video)'
       : oneShotEncode ? 'a copied picture cannot start exactly at the point you jumped to'
       : '';
-    return why ? 'Compatibility mode: the server is re-encoding the picture (' + why + ') and converting the audio. '
+    var sound = audioCopyOn() ? 'copies the sound when it can' : 'converts the sound';
+    if (!why && !pictureCopyOn()) why = 'chosen with the speed buttons';
+    return why ? 'Compatibility mode: the server is re-encoding the picture (' + why + ') and ' + sound + '. '
                  + (cfg.hwEncoder ? 'The re-encode runs on the server\'s graphics hardware (' + cfg.hwEncoder + '), so it is lighter on the CPU.' : 'This uses a lot of server CPU.')
+               : audioCopyOn() ? 'Compatibility mode: the server copies the picture and the sound (very light on CPU); the sound is converted only when its timing needs fixing.'
                : 'Compatibility mode: the server copies the picture and only converts the audio (light on CPU).';
   }
+
+  // ------------------------------------------------------------ speed: how much the server converts
+  // Fastest = picture and sound copied, Fast = sound converted, Slow = picture re-encoded (sound copied), Slowest = both converted.
+  // Almost every movie works with Fastest. The slower ones are for the rare file whose picture or sound does not show or play right with a copy.
+  var SPEEDS = ['fastest', 'fast', 'slow', 'slowest'];
+  var SPEED_LABEL = { fastest: 'Fastest', fast: 'Fast', slow: 'Slow', slowest: 'Slowest' };
+  var SPEED_KEY = 'mh.speed.' + cfg.fileId;
+  var speedMode = (function () { var v = store.get(SPEED_KEY); return SPEEDS.indexOf(v) >= 0 ? v : 'fastest'; })();
+  // Sound this browser can play inside an MP4 as it is. The browser says so itself (AC3 is often missing, AAC and MP3 nearly never).
+  var AUDIO_MP4 = { aac: 'mp4a.40.2', mp3: 'mp4a.6B', ac3: 'ac-3', eac3: 'ec-3' };
+  function audioCodecOk(codec) {
+    var cs = AUDIO_MP4[String(codec || '').toLowerCase()];
+    try { return !!cs && !!video.canPlayType && video.canPlayType('audio/mp4; codecs="' + cs + '"') !== ''; } catch (_) { return false; }
+  }
+  function chosenAudioTrack() {
+    var idx = currentAudioIndex();
+    for (var i = 0; i < audioTracks.length; i++) if (audioTracks[i].index === idx) return audioTracks[i];
+    return null;
+  }
+  function audioCopyPossible() {
+    var a = chosenAudioTrack();
+    return cfg.copyAudio !== false && !!a && audioCodecOk(a.codec) && a.channels >= 1 && a.channels <= 8;
+  }
+  function speedAllowed(m) {
+    return m === 'fastest' ? copyPossible() && audioCopyPossible()
+         : m === 'fast' ? copyPossible()
+         : m === 'slow' ? audioCopyPossible()
+         : true;
+  }
+  // The chosen speed, or the next slower one when this movie cannot do the chosen one (for example a picture the browser can only show re-encoded).
+  function effectiveSpeed() {
+    for (var i = Math.max(0, SPEEDS.indexOf(speedMode)); i < SPEEDS.length; i++) if (speedAllowed(SPEEDS[i])) return SPEEDS[i];
+    return 'slowest';
+  }
+  function pictureCopyOn() { var e = effectiveSpeed(); return (e === 'fastest' || e === 'fast') && copyPossible(); }
+  function audioCopyOn() { var e = effectiveSpeed(); return (e === 'fastest' || e === 'slow') && audioCopyPossible(); }
+  function renderSpeed() {
+    if (!el.speedRow) return;
+    var show = mode === 'remux' && cfg.remuxEnabled;
+    el.speedRow.hidden = !show;
+    if (!show) return;
+    var eff = effectiveSpeed();
+    [].forEach.call(el.speedBtns.querySelectorAll('button'), function (b) {
+      var m = b.getAttribute('data-speed'), ok = speedAllowed(m);
+      b.disabled = !ok;
+      b.setAttribute('aria-pressed', m === eff ? 'true' : 'false');
+      b.classList.toggle('is-on', m === eff);
+      b.title = ok ? '' : 'Not available for this movie';
+    });
+  }
+  function setSpeed(m, quiet) {
+    if (SPEEDS.indexOf(m) < 0 || !speedAllowed(m) || m === effectiveSpeed()) return;
+    speedMode = m; store.set(SPEED_KEY, m);
+    renderSpeed();
+    if (mode === 'remux' && !lazyRemux) { if (!quiet) hintToast('Speed: ' + SPEED_LABEL[m]); load('remux', position(), true); }
+  }
+  if (el.speedBtns) el.speedBtns.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('button[data-speed]'); if (b && !b.disabled) setSpeed(b.getAttribute('data-speed'));
+  });
+  // Sound that is copied but gives the browser nothing to decode (or an error): one step down, where the sound is converted. Remembered for this movie.
+  var audioWatch = null;
+  function stepDownAudio(why) {
+    if (mode !== 'remux' || !audioCopyOn()) return false;
+    speedMode = pictureCopyOn() ? 'fast' : 'slowest'; store.set(SPEED_KEY, speedMode);
+    techToast(why);
+    renderSpeed();
+    load('remux', position(), true);
+    return true;
+  }
+  function scheduleAudioWatch() {
+    clearTimeout(audioWatch);
+    if (mode !== 'remux' || !audioCopyOn()) return;
+    var seq = loadSeq;
+    audioWatch = setTimeout(function () {
+      // webkitAudioDecodedByteCount exists in Chrome, Edge and Safari: it stays 0 while the browser decodes no sound at all (Firefox has no such counter).
+      if (seq !== loadSeq || mode !== 'remux' || !audioCopyOn() || video.paused || video.muted || video.volume === 0 || video.currentTime < 1.5) return;
+      if (typeof video.webkitAudioDecodedByteCount === 'number' && video.webkitAudioDecodedByteCount === 0)
+        stepDownAudio('The sound did not start. Switching to a more compatible speed…');
+    }, 3500);
+  }
+  video.addEventListener('playing', scheduleAudioWatch);
   // Can this browser show HEVC? Then the server may copy an HEVC picture instead of re-encoding it (much cheaper). If it turns out not to show, the usual fallback re-encodes.
   var hevcOk = (function () {
     try { var v = document.createElement('video'); return !!v.canPlayType && v.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') !== ''; } catch (_) { return false; }
@@ -137,7 +222,7 @@
     mode = m; triedModes[m] = true;
     updateCompatButton();
     var seq = ++loadSeq;
-    if (m === 'remux' && startAt > 0 && copyPossible()) {
+    if (m === 'remux' && startAt > 0 && pictureCopyOn()) {
       hideMessage();
       player.classList.add('is-loading');
       fetch(cfg.remuxUrl + '/start?t=' + startAt.toFixed(2) + (hevcOk && isHevc(cfg.videoCodec) ? '&hevc=1' : ''), { credentials: 'same-origin' })
@@ -174,12 +259,16 @@
     setStatus(m === 'direct' ? 'Streaming directly from the source server.'
       : m === 'proxy' ? 'Streaming through the application (the browser could not reach the source directly).'
       : remuxDescription());
+    renderSpeed();
   }
 
   function onError() {
     if (lazyRemux) return;   // the source was removed on purpose while waiting for Play
     clearTimeout(loadTimer);
     var at = position();
+
+    // Copied sound the browser refused: the same stream with the sound converted.
+    if (stepDownAudio('The sound could not be played as it is. Converting it…')) return;
 
     // A remux the viewer asked for (audio switch / English start) failed: go back to plain playback instead of showing an error.
     if (mode === 'remux' && audioIndex !== null && prevMode) {
@@ -1140,6 +1229,7 @@
       b.textContent = on ? 'Compat: on' : 'Compat: off';
       b.title = title;
     }
+    renderSpeed();
     // the same switch under the player, easier to find and to read
     if (el.compatSwitch) {
       el.compatSwitch.checked = on;

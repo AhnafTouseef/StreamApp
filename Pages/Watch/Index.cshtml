@@ -86,6 +86,13 @@
                 </label>
                 <span class="muted small tech-only" id="compat-hint"></span>
             </div>
+            <div class="speed-row compat-ui" id="speed-row" hidden>
+                <span class="speed-label">Speed</span>
+                <span class="speed-btns" id="speed-btns" role="group" aria-label="Speed">
+                    <button type="button" data-speed="fastest">Fastest</button><button type="button" data-speed="fast">Fast</button><button type="button" data-speed="slow">Slow</button><button type="button" data-speed="slowest">Slowest</button>
+                </span>
+                <span class="muted small hint-only">Start with the fastest. If the picture or the sound is missing, choppy or out of step, try the next one: it asks more of the server but works with more files.</span>
+            </div>
             <div class="muted">@f.FileName</div>
             <div class="muted small hint-only" id="sub-tip" hidden>No subtitles found for this movie: drag a subtitle file (.srt, .vtt, .ass) onto the video to use one.</div>
             @if (m.MediaFiles.Count > 1)

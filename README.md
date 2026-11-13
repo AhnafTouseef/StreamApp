@@ -207,6 +207,7 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 | `Media:ProbeTimeoutSeconds`, `MaxConcurrentProbes` | 90, 2 | limits |
 | `Media:MaxRemuxSessions` | 0 | most compatibility streams that only copy the picture (0 = no limit; they cost a few percent of a core each) |
 | `Media:MaxEncodeSessions` | 0 | most streams that re-encode the picture at once (0 = automatic: half the CPU threads, at least 1 — or, when a hardware encoder is in use, the CPU thread count, at least 2; -1 = no limit). A stream waits a few seconds for a free slot, then gets a 503 "busy" instead of silently failing |
+| `Media:CopyAudio` | true | allow copying AAC/MP3/AC3/E-AC3 sound in compatibility mode (the Fastest and Slow speeds) when its timing lines up; false = always convert the sound |
 | `Media:HardwareEncoder` | auto | where a full picture re-encode runs: `auto` tries NVIDIA NVENC, Intel Quick Sync, AMD AMF (Linux: VAAPI) with a real half-second test encode and uses the first that works; `none` = always the CPU (libx264); `nvenc`, `qsv`, `amf`, `vaapi` = only that one; `custom` = use `Media:HardwareEncoderArgs` |
 | `Media:HardwareEncoderArgs` | empty | ffmpeg video arguments for `custom`, e.g. `-c:v h264_qsv -preset veryfast -global_quality 24 -pix_fmt nv12` |
 | `Site:Directory` | site-data | folder for the site settings and the uploaded logo/favicon (Admin > Site) |
@@ -246,6 +247,25 @@ ffmpeg and ffprobe are looked up in this order, and both are looked up the same 
 To set up: start the site, sign in, open **Admin > Dashboard** and press **Download FFmpeg into the project** (Windows). Or copy `ffmpeg.exe` and
 `ffprobe.exe` into `MovieHub\tools` yourself and press **Check again** (no restart needed). To move to a new computer, copy the whole project folder;
 the tools go with it. The binaries are git-ignored, so they are not committed.
+
+## Speed: how much the server converts
+
+With compatibility mode on, the player shows four speeds under the switch. They are named by speed, not by technique:
+
+| Speed | Picture | Sound | When to try it |
+|---|---|---|---|
+| **Fastest** (default) | copied | copied | almost every movie |
+| **Fast** | copied | converted to AAC | the sound is missing or does not play |
+| **Slow** | re-encoded | copied | the picture does not show or stutters with a copy |
+| **Slowest** | re-encoded | converted | last resort, most compatible |
+
+A hint next to the buttons says to start with the fastest and step down only if the picture or sound is missing, choppy or out of step. (It is a "hint" for the *Hide hints and tips* setting, and the buttons go with *Hide the compatibility-mode switch and button*, see Admin > Site.)
+
+- **Only what can work is offered.** A speed that cannot work for this movie is greyed out: no copy of a picture this browser cannot show (HEVC without browser support, for example), no copy of sound this browser cannot play inside an MP4. The browser itself is asked, so AC3 is offered only where it can decode it.
+- **Sound that is copied:** AAC, MP3, AC3 and E-AC3 (MKV and MP4 sources). DTS, TrueHD, PCM, MP2, Opus, Vorbis and FLAC are always converted.
+- **Timing is checked first.** A browser ignores a late start of one track in this kind of MP4, so before copying the server measures where the picture and the sound start. If they are more than 0.1 s apart, or the picture is re-encoded after a jump, the sound is converted instead (with its timing fixed). The log says which and why (`picture copied, sound converted (the sound starts +2.99 s from the picture)`).
+- **If a copied sound gives nothing to play** (Chrome, Edge and Safari report how much sound they decoded), the player steps down by itself to the next speed and remembers it for that movie. The chosen speed is also remembered per movie in the browser.
+- `Media:CopyAudio` (default true) switches sound copying off for the whole server: the sound is then always converted, as before.
 
 ## Site: name, logo, colours and what visitors see
 

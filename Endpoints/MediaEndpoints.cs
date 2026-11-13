@@ -27,6 +27,7 @@ public static class MediaEndpoints
     private static SemaphoreSlim? _hwEncodeSlots;   // re-encodes done by the graphics hardware: the CPU is mostly free, so the budget is larger
     private static readonly TimeSpan EncodeSlotWait = TimeSpan.FromSeconds(8);
     private static bool _alwaysEncode;
+    private static bool _copyAudio = true;
 
     public static void MapMediaEndpoints(this IEndpointRouteBuilder app)
     {
@@ -37,6 +38,7 @@ public static class MediaEndpoints
         var hwLimit = opt.MaxEncodeSessions > 0 ? opt.MaxEncodeSessions : opt.MaxEncodeSessions < 0 ? 0 : Math.Max(2, Environment.ProcessorCount);
         _hwEncodeSlots = hwLimit > 0 ? new SemaphoreSlim(hwLimit) : null;
         _alwaysEncode = opt.AlwaysEncodeVideo;
+        _copyAudio = opt.CopyAudio;
 
         var g = app.MapGroup("/media");
         g.MapMethods("/stream/{fileId:int}", new[] { "GET", "HEAD" }, StreamAsync);
@@ -118,7 +120,7 @@ public static class MediaEndpoints
 
     private static async Task<IResult> RemuxAsync(
         int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg, HardwareEncoder hardware,
-        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null, string? hevc = null)
+        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null, string? hevc = null, string? acopy = null)
     {
         if (!ffmpeg.IsAvailable)
             return Results.Problem("Server-side audio switching is unavailable: ffmpeg was not found. Install FFmpeg or set Media:FfmpegPath.", statusCode: 501);
@@ -146,6 +148,31 @@ public static class MediaEndpoints
         // A copied picture that starts after a seek needs to know where it really starts (k, from /start) so the audio can be lined up with it; without it, re-encode (exact).
         if (copyVideo && t > 0 && (k is null || k < 0 || k > t)) copyVideo = false;
         var seekCopy = copyVideo && t > 0;
+
+        // Sound: copied as it is when the viewer asked for that (acopy=1, the "Fastest" / "Slow" speeds), the track is one a browser can play inside an MP4,
+        // and its start lines up with the picture (a browser ignores a late start of one track in this kind of MP4, so the sound would play too early).
+        // Anything else keeps the converted AAC, whose timing is fixed by the filter below.
+        var copyAudio = false;
+        string audioWhy = "not asked for";
+        if (acopy == "1")
+        {
+            if (!_copyAudio) audioWhy = "switched off (Media:CopyAudio)";
+            else if (audioStream == null) audioWhy = "no audio track";
+            else if (!CanCopyAudio(audioStream.Codec, audioStream.Channels)) audioWhy = $"{audioStream.Codec ?? "unknown"} sound ({audioStream.Channels?.ToString() ?? "?"} channels) cannot be copied into an MP4 stream";
+            else if (t > 0 && !copyVideo) audioWhy = "after a jump the re-encoded picture starts exactly at the jump point, but copied sound would start earlier";
+            else
+            {
+                try
+                {
+                    var (v0, a0) = await FirstPacketTimesAsync(ffmpeg.Path!, file.Url, t, audioStream.Index, ctx.RequestAborted);
+                    if (v0 is { } vs && a0 is { } au && Math.Abs(au - vs) <= AudioSyncToleranceSeconds) { copyAudio = true; audioWhy = "ok"; }
+                    else audioWhy = v0 is { } v1 && a0 is { } a1 ? $"the sound starts {a1 - v1:+0.00;-0.00} s from the picture" : "the start of the sound could not be measured";
+                }
+                catch (OperationCanceledException) { return Results.StatusCode(499); }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) { audioWhy = "the start of the sound could not be measured"; }
+            }
+        }
+        log.LogInformation("Compatibility stream for file {FileId}: picture {Picture}, sound {Sound} ({Why}).", fileId, copyVideo ? "copied" : "re-encoded", copyAudio ? "copied" : "converted", audioWhy);
 
         // A full re-encode goes to the graphics hardware when this machine has a usable encoder (HardwareEncoder); a copied picture never needs one.
         HwEncoderInfo? hw = null;
@@ -194,14 +221,25 @@ public static class MediaEndpoints
                     ? (IsHevc(videoStream?.Codec) ? new[] { "-c:v", "copy", "-tag:v", "hvc1" } : new[] { "-c:v", "copy" })   // hvc1 is the tag browsers expect for HEVC in MP4
                     : h != null ? h.VideoArgs
                     : new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p" });
-                // Some files have audio that begins a few seconds after the picture (or after the point a seek lands on). The browser ignores that gap in this kind of MP4
-                // and would play the sound too early, so the gap is filled with silence: the audio then really starts together with the picture.
-                // With a copied picture after a seek the picture starts at k (a keyframe before t) and the audio at t: the silence is padded from k, and all timestamps are then moved to start at 0.
-                var firstPts = seekCopy ? Math.Round(k!.Value * 48000).ToString("0", CultureInfo.InvariantCulture) : "0";
-                args.AddRange(new[] { "-af", $"aresample=async=1:first_pts={firstPts}" });
-                if (seekCopy) args.AddRange(new[] { "-ar", "48000", "-avoid_negative_ts", "make_zero" });
-                args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-sn", "-dn",
-                    "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1" });
+                if (copyAudio)
+                {
+                    // Copied sound keeps its own timestamps; they are only moved so the stream starts at 0 (with a copied picture the file's own timestamps were kept, -copyts).
+                    args.AddRange(new[] { "-c:a", "copy" });
+                    if (copyVideo) args.AddRange(new[] { "-avoid_negative_ts", "make_zero" });
+                }
+                else
+                {
+                    // Some files have audio that begins a few seconds after the picture (or after the point a seek lands on). The browser ignores that gap in this kind of MP4
+                    // and would play the sound too early, so the gap is filled with silence: the audio then really starts together with the picture.
+                    // With a copied picture after a seek the picture starts at k (a keyframe before t) and the audio at t: the silence is padded from k, and all timestamps are then moved to start at 0.
+                    var firstPts = seekCopy ? Math.Round(k!.Value * 48000).ToString("0", CultureInfo.InvariantCulture) : "0";
+                    args.AddRange(new[] { "-af", $"aresample=async=1:first_pts={firstPts}" });
+                    if (seekCopy) args.AddRange(new[] { "-ar", "48000", "-avoid_negative_ts", "make_zero" });
+                    args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k", "-ac", "2" });
+                }
+                // AC3 / E-AC3 sound can only be described in the MP4 header after ffmpeg has seen its first packets, so the header is written after the first fragment (a moment later than usual).
+                var delayHeader = copyAudio && (audioStream!.Codec ?? "").ToLowerInvariant() is "ac3" or "eac3";
+                args.AddRange(new[] { "-sn", "-dn", "-movflags", "frag_keyframe+empty_moov+default_base_moof" + (delayHeader ? "+delay_moov" : ""), "-f", "mp4", "pipe:1" });
                 return args;
             }
 
@@ -285,6 +323,65 @@ public static class MediaEndpoints
                     endedByItself ? "ffmpeg finished by itself (exit code " + code + ")" : "the viewer left or moved on, ffmpeg stopped");
         }
         return Results.Empty;
+    }
+
+    /// <summary>The largest gap between the start of the picture and the start of the sound for which the sound is copied (a bit under what people notice).</summary>
+    internal const double AudioSyncToleranceSeconds = 0.1;
+
+    /// <summary>Sound a browser can play when it sits in an MP4 as it is (AAC, MP3, AC3, E-AC3; whether this particular browser can decode AC3 is the player's call).</summary>
+    internal static bool CanCopyAudio(string? codec, int? channels)
+        => channels is >= 1 and <= 8 && (codec ?? "").ToLowerInvariant() is "aac" or "mp3" or "ac3" or "eac3";
+
+    /// <summary>
+    /// Where the picture and the chosen sound really start in a copy (same seek as the stream will use): the first packet time of each, in seconds.
+    /// A null means that stream gave no packet.
+    /// </summary>
+    private static async Task<(double? Video, double? Audio)> FirstPacketTimesAsync(string ffmpegPath, string url, double seek, int audioIndex, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo(ffmpegPath) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "http,https,tcp,tls,crypto" };
+        if (seek > 0) { args.Add("-ss"); args.Add(seek.ToString("0.###", CultureInfo.InvariantCulture)); }
+        // -to is an absolute time here (the file's own timestamps are kept): the first 4 s after the seek point hold a first packet of each stream, even when the sound starts a little late.
+        // (-frames cannot be used: ffmpeg then stops after the first stream that reaches its limit.)
+        args.AddRange(new[] { "-copyts", "-i", url, "-map", "0:v:0", "-map", $"0:{audioIndex}", "-c", "copy", "-sn", "-dn",
+                              "-to", (seek + 4).ToString("0.###", CultureInfo.InvariantCulture), "-f", "framecrc", "pipe:1" });
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
+        _ = proc.StandardError.ReadToEndAsync();
+        var output = proc.StandardOutput.ReadToEndAsync();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try { await proc.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { try { proc.Kill(true); } catch (InvalidOperationException) { } throw; }
+        TryReadFirstPacketTimes(await output, out var v, out var au);
+        return (v, au);
+    }
+
+    /// <summary>Reads the first packet time of output stream 0 (picture) and 1 (sound) from ffmpeg's framecrc listing.</summary>
+    internal static bool TryReadFirstPacketTimes(string framecrc, out double? video, out double? audio)
+    {
+        video = audio = null;
+        var tb = new Dictionary<string, double>();
+        foreach (var raw in framecrc.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("#tb ", StringComparison.Ordinal))
+            {
+                var colon = line.IndexOf(':');
+                if (colon < 0) continue;
+                var stream = line[4..colon].Trim();
+                var frac = line[(colon + 1)..].Trim().Split('/');
+                if (frac.Length == 2 && double.TryParse(frac[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var num)
+                    && double.TryParse(frac[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var den) && den > 0) tb[stream] = num / den;
+                continue;
+            }
+            if (line.StartsWith('#')) continue;
+            var cols = line.Split(',', StringSplitOptions.TrimEntries);          // stream, dts, pts, duration, size, hash
+            if (cols.Length < 3 || !tb.TryGetValue(cols[0], out var scale) || !long.TryParse(cols[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pts)) continue;
+            if (cols[0] == "0" && video == null) video = pts * scale;
+            else if (cols[0] == "1" && audio == null) audio = pts * scale;
+        }
+        return video != null && audio != null;
     }
 
     private static string FirstLine(string text)

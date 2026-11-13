@@ -70,6 +70,7 @@ public class IndexModel : PageModel
             remuxUrl = $"/media/remux/{Current.Id}",
             remuxEnabled = _ffmpeg.IsAvailable,
             alwaysEncode = _media.AlwaysEncodeVideo,
+            copyAudio = _media.CopyAudio,
             hwEncoder = _hw.Current?.Name,   // e.g. "Intel Quick Sync" when re-encoding runs on the graphics hardware, otherwise null
             inspected = Current.InspectedAt != null && Current.InspectionError == null, // a failed ffprobe run also sets InspectedAt, but it tells us nothing about the tracks
             inspectionError = Current.InspectionError,

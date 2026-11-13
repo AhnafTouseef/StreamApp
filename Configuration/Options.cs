@@ -70,6 +70,8 @@ public sealed class MediaOptions
     public int MaxEncodeSessions { get; set; } = 0;
     /// <summary>Compatibility mode always re-encodes the picture instead of copying it. Slower and uses CPU, but removes everything that depends on the file's keyframes and timestamps; use it to find out whether a sync problem comes from copying.</summary>
     public bool AlwaysEncodeVideo { get; set; } = false;
+    /// <summary>Let viewers copy the sound (instead of converting it) in compatibility mode when the track is one a browser can play in an MP4 and its timing lines up. Off = the sound is always converted.</summary>
+    public bool CopyAudio { get; set; } = true;
     /// <summary>Encode the picture on the graphics hardware when a re-encode is needed. auto (try nvenc, qsv, amf/vaapi with a test encode), none, nvenc, qsv, amf, vaapi, or custom (use <see cref="HardwareEncoderArgs"/>).</summary>
     public string HardwareEncoder { get; set; } = "auto";
     /// <summary>ffmpeg video arguments used when <see cref="HardwareEncoder"/> is custom, e.g. "-c:v h264_qsv -preset veryfast -global_quality 24 -pix_fmt nv12".</summary>
