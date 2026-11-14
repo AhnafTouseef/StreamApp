@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using MovieHub.Services;
+using StreamApp.Services;
 
-namespace MovieHub.ViewComponents;
+namespace StreamApp.ViewComponents;
 
 /// <summary>Primary navigation built from the category table, so a category created in the admin panel appears immediately.</summary>
 public class NavViewComponent : ViewComponent

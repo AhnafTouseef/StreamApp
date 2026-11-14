@@ -1,12 +1,12 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Models;
+using StreamApp.Configuration;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 /// <summary>
 /// Decides when scans start and guarantees the concurrency rules: at most one scan per source at any moment,

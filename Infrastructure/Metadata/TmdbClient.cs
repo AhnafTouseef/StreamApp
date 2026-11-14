@@ -2,9 +2,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Infrastructure.Metadata;
+namespace StreamApp.Infrastructure.Metadata;
 
 public sealed class TmdbException : Exception
 {

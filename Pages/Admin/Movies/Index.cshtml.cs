@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Data;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Admin.Movies;
+namespace StreamApp.Pages.Admin.Movies;
 
 public sealed record AdminMovieRow(int Id, string Title, int? Year, string FolderName, string CategoryName, string SourceName, int? TmdbId, MatchStatus Match, int Files);
 

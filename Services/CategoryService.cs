@@ -3,10 +3,10 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using MovieHub.Data;
-using MovieHub.Models;
+using StreamApp.Data;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 public static class Slugger
 {

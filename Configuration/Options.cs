@@ -1,4 +1,4 @@
-namespace MovieHub.Configuration;
+namespace StreamApp.Configuration;
 
 public sealed class TmdbOptions
 {
@@ -41,7 +41,7 @@ public sealed class CrawlerOptions
     public int MaxConcurrentRequests { get; set; } = 4;
     /// <summary>false (default): the TMDB poster is used when the movie is matched, the poster file inside the ISP folder is the fallback. true: the folder poster always wins.</summary>
     public bool PreferFolderPoster { get; set; } = false;
-    public string UserAgent { get; set; } = "MovieHub/1.0 (local catalog crawler)";
+    public string UserAgent { get; set; } = "StreamApp/1.0 (local catalog crawler)";
     public string[] VideoExtensions { get; set; } = { ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm" };
     public string[] SubtitleExtensions { get; set; } = { ".srt", ".vtt", ".ass", ".ssa" };
     public string[] ImageExtensions { get; set; } = { ".jpg", ".jpeg", ".png", ".webp" };

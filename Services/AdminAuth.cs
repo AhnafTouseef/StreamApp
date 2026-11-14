@@ -1,13 +1,13 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 public static class AdminAuthDefaults
 {
-    public const string Scheme = "MovieHubAdmin";
+    public const string Scheme = "StreamAppAdmin";
 }
 
 /// <summary>PBKDF2-SHA256 password hashing. Format: v1.{iterations}.{saltBase64}.{hashBase64}</summary>

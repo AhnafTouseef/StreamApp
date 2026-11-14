@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Infrastructure.Metadata;
+namespace StreamApp.Infrastructure.Metadata;
 
 /// <summary>
 /// Optional IMDb rating lookup through the official OMDb API (https://www.omdbapi.com/), keyed by the IMDb id TMDB provides.

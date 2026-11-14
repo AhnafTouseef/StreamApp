@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Data;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Movies;
+namespace StreamApp.Pages.Movies;
 
 public class CategoryModel : PageModel
 {

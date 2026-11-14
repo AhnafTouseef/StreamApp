@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace MovieHub.Infrastructure.Crawler;
+namespace StreamApp.Infrastructure.Crawler;
 
 public sealed record ParsedName(string Title, int? Year, string? Quality, string Tags);
 

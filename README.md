@@ -1,4 +1,4 @@
-# MovieHub
+# StreamApp
 
 A Netflix-style movie discovery and streaming site for movies that already live on your ISP's directory servers
 (nginx / h5ai listings such as `http://172.16.50.7/DHAKA-FLIX-14/` and `.../DHAKA-FLIX-7/`).
@@ -20,13 +20,13 @@ Movie files are **never downloaded** — the browser plays them straight from th
 | .NET 8 SDK | <https://dotnet.microsoft.com/download/dotnet/8.0> |
 | TMDB API key | free at <https://www.themoviedb.org/settings/api> (v3 key or v4 read-access token) |
 | FFprobe | part of FFmpeg (`apt install ffmpeg`, `brew install ffmpeg`, or <https://ffmpeg.org>) — needed for audio/subtitle/resolution info |
-| FFmpeg | installed together with FFprobe (the winget/apt/brew packages include both). MovieHub finds it automatically; it is what makes audio-track switching and English-first start work in Chrome/Edge/Firefox, and it plays MKV/HEVC/AC3 files (see [Player](#player)) |
-| Network | the machine running MovieHub must reach the ISP servers; viewers' browsers must too for direct playback |
+| FFmpeg | installed together with FFprobe (the winget/apt/brew packages include both). StreamApp finds it automatically; it is what makes audio-track switching and English-first start work in Chrome/Edge/Firefox, and it plays MKV/HEVC/AC3 files (see [Player](#player)) |
+| Network | the machine running StreamApp must reach the ISP servers; viewers' browsers must too for direct playback |
 
 ## 2. Setup
 
 ```bash
-cd MovieHub
+cd StreamApp
 
 # 1. TMDB key (development: user-secrets; production: environment variable or appsettings.Production.json)
 dotnet user-secrets set "Tmdb:ApiKey" "<your key or token>"
@@ -58,13 +58,13 @@ If `Admin:PasswordHash` / `Admin:Password` are both empty, admin login is disabl
 
 ### Database
 
-The SQLite file (`moviehub.db`, see `ConnectionStrings:Default`) is created on first start. Because the sandbox could not
+The SQLite file (`streamapp.db`, see `ConnectionStrings:Default`) is created on first start. Because the sandbox could not
 run `dotnet ef`, **no migrations are shipped**: with no migrations present the app creates the schema with `EnsureCreated`.
 To switch to proper migrations (recommended before you change the model):
 
 ```bash
 dotnet tool install --global dotnet-ef
-rm moviehub.db moviehub.db-shm moviehub.db-wal      # the EnsureCreated schema has no migration history
+rm streamapp.db streamapp.db-shm streamapp.db-wal      # the EnsureCreated schema has no migration history
 dotnet ef migrations add InitialCreate
 dotnet run                                          # applies migrations at startup
 ```
@@ -191,7 +191,7 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `ConnectionStrings:Default` | `Data Source=moviehub.db` | SQLite file |
+| `ConnectionStrings:Default` | `Data Source=streamapp.db` | SQLite file |
 | `Tmdb:ApiKey` / `Language` / `MaxConcurrency` | – / `en-US` / 3 | TMDB access |
 | `Omdb:ApiKey` | empty | optional IMDb ratings (official API) |
 | `Crawler:DefaultCooldownHours` | 12 | default per-source cooldown (editable per source) |
@@ -224,7 +224,7 @@ Direct media URLs for a hidden movie are not separately blocked; the pages that 
 
 ## Removing entries (debugging a bad scan)
 
-Nothing here ever touches the ISP server; only MovieHub's own database changes.
+Nothing here ever touches the ISP server; only StreamApp's own database changes.
 
 - **Admin > Library > source menu > Clear movies**: removes every movie entry of that source and forgets what was scanned, but keeps the source. Press *Scan now* to index it again from scratch.
 - **Admin > Library > source menu > Delete**: removes the source *and* all of its movie entries (the confirm dialog shows how many).
@@ -241,25 +241,25 @@ shows "N of its movies are filed under a different category" with a **Move them 
 ffmpeg and ffprobe are looked up in this order, and both are looked up the same way, so they can no longer end up in different places:
 
 1. `Media:FfmpegPath` / `Media:FfprobePath`, only if you set them (leave them empty)
-2. the project's **`tools`** folder (`MovieHub\tools`)
+2. the project's **`tools`** folder (`StreamApp\tools`)
 3. PATH, then the usual install folders (winget, Chocolatey, Scoop, Homebrew)
 
 To set up: start the site, sign in, open **Admin > Dashboard** and press **Download FFmpeg into the project** (Windows). Or copy `ffmpeg.exe` and
-`ffprobe.exe` into `MovieHub\tools` yourself and press **Check again** (no restart needed). To move to a new computer, copy the whole project folder;
+`ffprobe.exe` into `StreamApp\tools` yourself and press **Check again** (no restart needed). To move to a new computer, copy the whole project folder;
 the tools go with it. The binaries are git-ignored, so they are not committed.
 
-## Speed: how much the server converts
+## Stream method: how much the server converts
 
-With compatibility mode on, the player shows four speeds under the switch. They are named by speed, not by technique:
+With compatibility mode on, the player shows four stream methods under the switch. Viewers only see how fast each one streams and seeks, never what the server does for it, so the buttons are named by speed, not by technique:
 
-| Speed | Picture | Sound | When to try it |
+| Stream method | Picture | Sound | When to try it |
 |---|---|---|---|
 | **Fastest** (default) | copied | copied | almost every movie |
 | **Fast** | copied | converted to AAC | the sound is missing or does not play |
 | **Slow** | re-encoded | copied | the picture does not show or stutters with a copy |
 | **Slowest** | re-encoded | converted | last resort, most compatible |
 
-A hint next to the buttons says to start with the fastest and step down only if the picture or sound is missing, choppy or out of step. (It is a "hint" for the *Hide hints and tips* setting, and the buttons go with *Hide the compatibility-mode switch and button*, see Admin > Site.)
+A hint next to the buttons says to start with the fastest and step down only if the picture or sound is missing, choppy or out of step, and that slower methods stream and seek more slowly but work with more files. (It is a "hint" for the *Hide hints and tips* setting, and the buttons go with *Hide the compatibility-mode switch and button*, see Admin > Site.)
 
 - **Only what can work is offered.** A speed that cannot work for this movie is greyed out: no copy of a picture this browser cannot show (HEVC without browser support, for example), no copy of sound this browser cannot play inside an MP4. The browser itself is asked, so AC3 is offered only where it can decode it.
 - **Sound that is copied:** AAC, MP3, AC3 and E-AC3 (MKV and MP4 sources). DTS, TrueHD, PCM, MP2, Opus, Vorbis and FLAC are always converted.
@@ -278,7 +278,7 @@ Admin > **Site** changes how the site looks and what it says, without editing an
 - **Custom CSS** for anything else. It is added after the normal styles. If a rule breaks the layout, empty the box and save.
 - **Reset everything to default** returns to the original look and removes the uploaded images.
 
-Where it is stored: `site.json` and the uploaded images live in the folder `Site:Directory` (default `site-data`, inside the project, next to the database). The database is not touched, so updating the app never needs a migration. Back up or move that folder together with `moviehub.db`. `Site:Name` in `appsettings.json` only sets the name used until one is saved in the admin panel.
+Where it is stored: `site.json` and the uploaded images live in the folder `Site:Directory` (default `site-data`, inside the project, next to the database). The database is not touched, so updating the app never needs a migration. Back up or move that folder together with `streamapp.db`. `Site:Name` in `appsettings.json` only sets the name used until one is saved in the admin panel.
 
 Uploaded images are checked by their content, not their name; an SVG that contains scripts or event handlers is refused, and images are served with a header that stops them running anything.
 
@@ -294,9 +294,9 @@ Copying the picture (the usual compatibility-mode case) needs no encoder at all.
 
 ## 5. Deployment notes
 - Put it behind a reverse proxy with HTTPS if exposed beyond your LAN. The streaming proxy is not rate-limited.
-- Mixed content: an `https://` MovieHub cannot play `http://` ISP URLs directly; the player automatically falls back to `/media/stream/{id}`
+- Mixed content: an `https://` StreamApp cannot play `http://` ISP URLs directly; the player automatically falls back to `/media/stream/{id}`
   (which then carries the traffic through this server).
-- Back up `moviehub.db` — it holds categories, sources, manual metadata corrections and scan history. The catalog itself can be rebuilt with a deep scan.
+- Back up `streamapp.db` — it holds categories, sources, manual metadata corrections and scan history. The catalog itself can be rebuilt with a deep scan.
 
 ## Known limitations
 - **EF Core / SQLite were not built or run in the authoring sandbox.** Expect the first build to be the first real compile of the data layer.

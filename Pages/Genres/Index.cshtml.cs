@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Genres;
+namespace StreamApp.Pages.Genres;
 
 public class IndexModel : PageModel
 {

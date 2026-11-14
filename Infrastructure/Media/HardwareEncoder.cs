@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Infrastructure.Media;
+namespace StreamApp.Infrastructure.Media;
 
 /// <summary>A video encoder that runs on the graphics hardware, with the ffmpeg arguments that select it.</summary>
 /// <param name="Kind">nvenc, qsv, amf, vaapi or custom.</param>

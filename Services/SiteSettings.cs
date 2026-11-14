@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 public enum LogoMode { LogoAndName, LogoOnly, NameOnly }
 
@@ -19,7 +19,7 @@ public readonly record struct VisitorView(bool HideTechnical, bool HideHints, bo
 /// </summary>
 public sealed class SiteSettings
 {
-    public const string DefaultName = "MovieHub";
+    public const string DefaultName = "StreamApp";
     public const string DefaultAccent = "#f2a93b", DefaultAccentLight = "#ffc766", DefaultBackground = "#0a0c10", DefaultPanel = "#11141b", DefaultText = "#eceef3";
     public const string DefaultMark = "▶";
     public const string DefaultFooter = "Movies are streamed directly from the configured local servers.";

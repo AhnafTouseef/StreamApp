@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Metadata;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Metadata;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 /// <summary>
 /// Switches every TMDB-matched movie that still shows the poster from the ISP folder over to its TMDB poster.

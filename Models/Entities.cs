@@ -1,4 +1,4 @@
-namespace MovieHub.Models;
+namespace StreamApp.Models;
 
 public enum ScanStrategy { Auto, YearBased, Flat, RecursiveDiscovery, ManualFull }
 public enum ScanRunStatus { Running, Succeeded, Partial, Failed, Interrupted, Cancelled }

@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Models;
+using StreamApp.Configuration;
+using StreamApp.Models;
 
-namespace MovieHub.Data;
+namespace StreamApp.Data;
 
 /// <summary>Creates/migrates the database, recovers from interrupted scans and seeds the category tree and configured sources.</summary>
 public static class DbInitializer

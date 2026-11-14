@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Services;
+using StreamApp.Configuration;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Admin;
+namespace StreamApp.Pages.Admin;
 
 /// <summary>Admin > Site: what visitors see (hide technical details and hints), the name, logo, favicon, colours and wording of the site.</summary>
 public class SiteModel : AdminPageModel

@@ -2,9 +2,9 @@
 @model string
 @{
     var s = Site.Current;
-    var showLogo = s.HasLogo && s.LogoMode != MovieHub.Services.LogoMode.NameOnly;
-    var showName = !showLogo || s.LogoMode == MovieHub.Services.LogoMode.LogoAndName;
-    var showMark = !showLogo && s.LogoMode != MovieHub.Services.LogoMode.NameOnly && s.BrandMark.Length > 0;
+    var showLogo = s.HasLogo && s.LogoMode != StreamApp.Services.LogoMode.NameOnly;
+    var showName = !showLogo || s.LogoMode == StreamApp.Services.LogoMode.LogoAndName;
+    var showMark = !showLogo && s.LogoMode != StreamApp.Services.LogoMode.NameOnly && s.BrandMark.Length > 0;
 }
 <a class="brand" href="@Model" aria-label="@s.Name">
     @if (showLogo) { <img class="brand-logo" src="/brand/logo?v=@s.Version" alt="@(showName ? "" : s.Name)" /> }

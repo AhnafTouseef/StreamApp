@@ -1,4 +1,4 @@
-/* MovieHub site script: header, row scrolling, home hero carousel. Progressive enhancement only. */
+/* StreamApp site script: header, row scrolling, home hero carousel. Progressive enhancement only. */
 (function () {
   'use strict';
 

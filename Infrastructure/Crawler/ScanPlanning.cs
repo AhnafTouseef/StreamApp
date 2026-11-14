@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
-using MovieHub.Models;
+using StreamApp.Models;
 
-namespace MovieHub.Infrastructure.Crawler;
+namespace StreamApp.Infrastructure.Crawler;
 
 /// <summary>One movie to ingest: either a folder (the usual case) or a loose video file.</summary>
 public sealed record MovieUnit(string Name, string Url, bool IsFolder, DateTime? Modified, long? Size);

@@ -1,13 +1,13 @@
 using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Configuration;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Endpoints;
+namespace StreamApp.Endpoints;
 
 /// <summary>
 /// Playback helpers. The player first tries the ISP URL directly. These endpoints are the fallbacks:

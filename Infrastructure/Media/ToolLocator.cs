@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Infrastructure.Media;
+namespace StreamApp.Infrastructure.Media;
 
 public sealed record ToolInfo(string Command, string? Version);
 

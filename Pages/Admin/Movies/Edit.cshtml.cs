@@ -1,13 +1,13 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Infrastructure.Metadata;
-using MovieHub.Models;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Infrastructure.Metadata;
+using StreamApp.Models;
 
-namespace MovieHub.Pages.Admin.Movies;
+namespace StreamApp.Pages.Admin.Movies;
 
 public class MovieInput
 {
@@ -188,7 +188,7 @@ public class EditModel : AdminPageModel
         }
         // Inside the popup there is no list to go back to: tell the list page to close the popup and refresh itself.
         if (Embed)
-            return Content("<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:system-ui;background:#0a0c10;color:#eceef3;padding:24px\">Removed.<script>parent.postMessage({ moviehub: 'edit-done' }, location.origin);</script>", "text/html");
+            return Content("<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:system-ui;background:#0a0c10;color:#eceef3;padding:24px\">Removed.<script>parent.postMessage({ streamapp: 'edit-done' }, location.origin);</script>", "text/html");
         return RedirectToPage("/Admin/Movies/Index");
     }
 }

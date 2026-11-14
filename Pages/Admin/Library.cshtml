@@ -1,5 +1,5 @@
 @page "/admin/library"
-@model MovieHub.Pages.Admin.LibraryModel
+@model StreamApp.Pages.Admin.LibraryModel
 @{
     ViewData["Title"] = "Library"; ViewData["Active"] = "library";
     var cat = Model.Cat; var src = Model.Src;
@@ -166,7 +166,7 @@
                     <select asp-for="Src.CategoryId">@foreach (var c in Model.AllCategories) { <option value="@c.Id">@c.Name</option> }</select></div>
                 <div class="field wide"><label asp-for="Src.RootUrl">Root directory URL</label><input asp-for="Src.RootUrl" required placeholder="http://172.16.50.7/DHAKA-FLIX-14/English%20Movies%20(1080p)/" /><span class="hint">An http(s) directory listing (nginx/h5ai). The crawler never leaves this URL.</span></div>
                 <div class="field"><label asp-for="Src.ScanStrategy">Scan strategy</label>
-                    <select asp-for="Src.ScanStrategy" asp-items="Html.GetEnumSelectList<MovieHub.Models.ScanStrategy>()"></select>
+                    <select asp-for="Src.ScanStrategy" asp-items="Html.GetEnumSelectList<StreamApp.Models.ScanStrategy>()"></select>
                     <span class="hint"><b>Auto</b>: detect from the listing · <b>YearBased</b>: year folders, only the latest year on routine scans · <b>Flat</b>: each folder is a movie · <b>RecursiveDiscovery</b>: walk the tree, a folder with videos is a movie · <b>ManualFull</b>: like recursive, never scanned automatically.</span></div>
                 <div class="field"><label asp-for="Src.CooldownHours">Cooldown (hours)</label><input asp-for="Src.CooldownHours" type="number" min="1" max="8760" /><span class="hint">Minimum time between automatic scans triggered by page visits. The first scan of a source imports every year folder (newest first, in the background, so it can take a long time on a large server); later routine scans only re-check the latest year.</span></div>
                 <div class="field wide"><label asp-for="Src.IncludedFolders">Included folders (optional, one per line, * and ? allowed)</label><textarea asp-for="Src.IncludedFolders" placeholder="James Bond Collection"></textarea><span class="hint">Year-based sources: year folders are always scanned; other folders (collections) are scanned only when listed here.</span></div>

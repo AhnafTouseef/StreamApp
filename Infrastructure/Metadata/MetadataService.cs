@@ -1,12 +1,12 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Models;
+using StreamApp.Configuration;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Models;
 
-namespace MovieHub.Infrastructure.Metadata;
+namespace StreamApp.Infrastructure.Metadata;
 
 public sealed record MatchOutcome(MatchStatus Status, int? TmdbId, string Note);
 

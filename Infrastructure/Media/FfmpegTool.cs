@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Infrastructure.Media;
+namespace StreamApp.Infrastructure.Media;
 
 /// <summary>
 /// Finds the ffmpeg executable (see <see cref="ToolLocator"/>): project tools folder first, then PATH.

@@ -1,11 +1,11 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Models;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 /// <summary>What the player needs to know about a file's streams.</summary>
 public sealed record InspectionSnapshot(

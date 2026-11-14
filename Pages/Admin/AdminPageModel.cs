@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace MovieHub.Pages.Admin;
+namespace StreamApp.Pages.Admin;
 
 public abstract class AdminPageModel : PageModel
 {

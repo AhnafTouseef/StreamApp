@@ -3,11 +3,11 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Models;
+using StreamApp.Configuration;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 public sealed record WindowTrack(int Index, string? Language, string? Title, string? Codec, bool IsDefault, bool Supported, string? Vtt);
 public sealed record SubtitleWindow(double From, double Length, IReadOnlyList<WindowTrack> Tracks);
@@ -43,7 +43,7 @@ public sealed class EmbeddedSubtitleService
     public EmbeddedSubtitleService(IOptions<MediaOptions> opt, FfmpegTool ffmpeg, IHostEnvironment env, IHostApplicationLifetime lifetime, ILogger<EmbeddedSubtitleService> log)
     {
         _opt = opt.Value; _ffmpeg = ffmpeg; _lifetime = lifetime; _log = log;
-        var dir = string.IsNullOrWhiteSpace(_opt.SubtitleStagingDirectory) ? Path.Combine(Path.GetTempPath(), "moviehub-subtitles") : _opt.SubtitleStagingDirectory;
+        var dir = string.IsNullOrWhiteSpace(_opt.SubtitleStagingDirectory) ? Path.Combine(Path.GetTempPath(), "streamapp-subtitles") : _opt.SubtitleStagingDirectory;
         _dir = Path.IsPathRooted(dir) ? dir : Path.Combine(env.ContentRootPath, dir);
         _slots = new SemaphoreSlim(Math.Max(1, _opt.MaxSubtitleExtractions));
         Purge(_dir, TimeSpan.Zero, DateTime.UtcNow);   // nothing from an earlier run is worth keeping: browsers hold the real copies

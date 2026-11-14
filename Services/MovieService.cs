@@ -1,9 +1,9 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Models;
+using StreamApp.Data;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 public sealed class MovieCopyDto
 {

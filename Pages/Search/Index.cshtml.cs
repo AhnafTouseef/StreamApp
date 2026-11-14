@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Search;
+namespace StreamApp.Pages.Search;
 
 public class IndexModel : PageModel
 {

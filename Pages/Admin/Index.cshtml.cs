@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Admin;
+namespace StreamApp.Pages.Admin;
 
 public sealed record RecentMovie(int Id, string Title, int? ReleaseYear, string SourceName, MatchStatus MatchStatus, DateTime CreatedAt);
 public sealed record ScanRow(int Id, string SourceName, DateTime StartedAt, DateTime? FinishedAt, ScanRunStatus Status, bool Deep, string Trigger,
@@ -20,9 +20,9 @@ public class IndexModel : AdminPageModel
     private readonly FfmpegTool _ffmpeg;
     private readonly InspectionBackfill _backfill;
     private readonly FfmpegInstaller _installer;
-    private readonly MovieHub.Infrastructure.Metadata.MetadataService _metadata;
+    private readonly StreamApp.Infrastructure.Metadata.MetadataService _metadata;
     private readonly PosterBackfill _posters;
-    public IndexModel(AppDbContext db, ScanCoordinator scans, FfprobeRunner ffprobe, FfmpegTool ffmpeg, InspectionBackfill backfill, FfmpegInstaller installer, MovieHub.Infrastructure.Metadata.MetadataService metadata, PosterBackfill posters)
+    public IndexModel(AppDbContext db, ScanCoordinator scans, FfprobeRunner ffprobe, FfmpegTool ffmpeg, InspectionBackfill backfill, FfmpegInstaller installer, StreamApp.Infrastructure.Metadata.MetadataService metadata, PosterBackfill posters)
     { _db = db; _scans = scans; _ffprobe = ffprobe; _ffmpeg = ffmpeg; _backfill = backfill; _installer = installer; _metadata = metadata; _posters = posters; }
 
     public PosterBackfill Posters => _posters;

@@ -1,11 +1,11 @@
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Models;
+using StreamApp.Data;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 /// <summary>
-/// Removes catalog entries in batches. Only MovieHub's own database rows are touched; the ISP server is never contacted.
+/// Removes catalog entries in batches. Only StreamApp's own database rows are touched; the ISP server is never contacted.
 /// Files, streams, subtitles and genre links of a movie are removed by the database cascade.
 /// </summary>
 public static class CatalogCleaner

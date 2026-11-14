@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Models;
+using StreamApp.Models;
 
-namespace MovieHub.Data;
+namespace StreamApp.Data;
 
 public class AppDbContext : DbContext
 {

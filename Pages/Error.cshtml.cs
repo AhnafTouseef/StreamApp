@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace MovieHub.Pages;
+namespace StreamApp.Pages;
 
 [IgnoreAntiforgeryToken]
 public class ErrorModel : PageModel

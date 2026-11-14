@@ -1,10 +1,10 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Movies;
+namespace StreamApp.Pages.Movies;
 
 public class DetailsModel : PageModel
 {

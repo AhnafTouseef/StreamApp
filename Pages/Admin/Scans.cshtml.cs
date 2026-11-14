@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Data;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Admin;
+namespace StreamApp.Pages.Admin;
 
 public class ScansModel : AdminPageModel
 {

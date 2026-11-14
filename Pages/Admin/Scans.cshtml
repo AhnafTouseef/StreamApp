@@ -1,5 +1,5 @@
 @page "/admin/scans"
-@model MovieHub.Pages.Admin.ScansModel
+@model StreamApp.Pages.Admin.ScansModel
 @{ ViewData["Title"] = "Scans"; ViewData["Active"] = "scans"; if (Model.AnyRunning) { ViewData["Refresh"] = 5; } }
 <h1>Scans</h1>
 <p class="muted">Scans run only when a category page is opened after its cooldown, or when started here. There is no background crawler.</p>

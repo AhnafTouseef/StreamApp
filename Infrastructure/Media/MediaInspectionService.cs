@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Models;
+using StreamApp.Configuration;
+using StreamApp.Models;
 
-namespace MovieHub.Infrastructure.Media;
+namespace StreamApp.Infrastructure.Media;
 
 /// <summary>Runs ffprobe for media files and stores the result (duration, codecs, resolution, streams). Failures are recorded, never thrown.</summary>
 public sealed class MediaInspectionService

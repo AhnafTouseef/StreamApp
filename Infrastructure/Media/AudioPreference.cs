@@ -1,4 +1,4 @@
-namespace MovieHub.Infrastructure.Media;
+namespace StreamApp.Infrastructure.Media;
 
 /// <summary>Chooses the audio track a movie should start with: English when the file has one, otherwise the file's own default.</summary>
 public static class AudioPreference

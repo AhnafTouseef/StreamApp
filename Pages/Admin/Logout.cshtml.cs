@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using MovieHub.Services;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Admin;
+namespace StreamApp.Pages.Admin;
 
 public class LogoutModel : PageModel
 {

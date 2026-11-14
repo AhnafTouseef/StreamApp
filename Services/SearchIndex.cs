@@ -1,9 +1,9 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Crawler;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 /// <summary>One fuzzy search result: the movie and how well it matched (0..1).</summary>
 public sealed record SearchHit(int Id, double Score, string Title);

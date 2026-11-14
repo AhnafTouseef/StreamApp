@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace MovieHub.Infrastructure.Media;
+namespace StreamApp.Infrastructure.Media;
 
 /// <summary>Converts external subtitle files to WebVTT, the only text-track format browsers accept for &lt;track&gt;.</summary>
 public static class SubtitleConverter

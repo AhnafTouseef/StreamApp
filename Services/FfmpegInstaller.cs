@@ -1,9 +1,9 @@
 using System.IO.Compression;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Infrastructure.Media;
+using StreamApp.Configuration;
+using StreamApp.Infrastructure.Media;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 /// <summary>
 /// Downloads a Windows FFmpeg build and puts ffmpeg.exe + ffprobe.exe into the project's tools folder, so the project folder is self-contained.

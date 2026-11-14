@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "MovieHub": {
+    "StreamApp": {
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": false,

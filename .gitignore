@@ -9,6 +9,7 @@ obj/
 appsettings.Production.json
 secrets.json
 site-data/
+wwwroot/images/netflix.png
 
 # FFmpeg binaries live in tools/ but are not committed
 tools/*

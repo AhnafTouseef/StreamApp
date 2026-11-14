@@ -2,13 +2,13 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Configuration;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Admin;
+namespace StreamApp.Pages.Admin;
 
 public class CategoryInput
 {

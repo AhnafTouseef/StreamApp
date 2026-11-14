@@ -2,13 +2,13 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Configuration;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Pages.Watch;
+namespace StreamApp.Pages.Watch;
 
 public class IndexModel : PageModel
 {

@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
+using StreamApp.Data;
 
-namespace MovieHub.Infrastructure.Crawler;
+namespace StreamApp.Infrastructure.Crawler;
 
 /// <summary>
 /// The single gate for outbound requests to content servers. A URL is allowed only when it lives under the

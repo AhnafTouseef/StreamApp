@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Models;
+using StreamApp.Data;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 public sealed record StreamRow(int Index, StreamKind Kind, string? Codec, bool IsDefault, string? Language = null, string? Title = null, int? Channels = null);
 public sealed record MediaFileInfo(int Id, string Url, IReadOnlyList<StreamRow> Streams);

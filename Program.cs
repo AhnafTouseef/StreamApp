@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Configuration;
-using MovieHub.Data;
-using MovieHub.Endpoints;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Infrastructure.Metadata;
-using MovieHub.Services;
+using StreamApp.Configuration;
+using StreamApp.Data;
+using StreamApp.Endpoints;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Infrastructure.Metadata;
+using StreamApp.Services;
 
 // Helper for creating the Admin:PasswordHash value:  dotnet run -- hash-password "my secret"
 if (args.Length >= 2 && args[0].Equals("hash-password", StringComparison.OrdinalIgnoreCase))
@@ -33,7 +33,7 @@ var crawlerOpts = config.GetSection(CrawlerOptions.Section).Get<CrawlerOptions>(
 var adminOpts = config.GetSection(AdminOptions.Section).Get<AdminOptions>() ?? new AdminOptions();
 
 // ---- Database ----
-var connectionString = config.GetConnectionString("Default") ?? "Data Source=moviehub.db;Default Timeout=30";
+var connectionString = config.GetConnectionString("Default") ?? "Data Source=streamapp.db;Default Timeout=30";
 services.AddDbContextFactory<AppDbContext>(o => o.UseSqlite(connectionString));
 // Scoped context for request-bound services (pages); background work uses the factory directly.
 services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
@@ -49,7 +49,7 @@ SocketsHttpHandler NoRedirectHandler() => new()
 services.AddHttpClient(DirectoryListingClient.HttpClientName, c =>
 {
     c.Timeout = TimeSpan.FromSeconds(Math.Max(5, crawlerOpts.RequestTimeoutSeconds));
-    c.DefaultRequestHeaders.UserAgent.ParseAdd("MovieHub/1.0");
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("StreamApp/1.0");
 }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
 
 services.AddHttpClient(MediaEndpoints.StreamClientName, c => c.Timeout = Timeout.InfiniteTimeSpan)
@@ -100,7 +100,7 @@ services.AddAuthentication(AdminAuthDefaults.Scheme)
     {
         o.LoginPath = "/admin/login";
         o.AccessDeniedPath = "/admin/login";
-        o.Cookie.Name = "moviehub.admin";
+        o.Cookie.Name = "streamapp.admin";
         o.Cookie.HttpOnly = true;
         o.Cookie.SameSite = SameSiteMode.Strict;
         o.SlidingExpiration = true;

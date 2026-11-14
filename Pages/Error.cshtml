@@ -1,5 +1,5 @@
 @page "/Error"
-@model MovieHub.Pages.ErrorModel
+@model StreamApp.Pages.ErrorModel
 @{ ViewData["Title"] = Model.Code == 404 ? "Not found" : "Error"; }
 <div class="page">
     <partial name="_EmptyState" model="@(Model.Code == 404 ? "Page not found" : "Something went wrong", Model.Code == 404 ? "The page or movie you asked for does not exist (any more)." : "The request could not be completed. The error has been logged.")" />

@@ -3,9 +3,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Infrastructure.Media;
+namespace StreamApp.Infrastructure.Media;
 
 public sealed record ProbeStream(
     int Index, string Type, string? Codec, string? Language, string? Title, bool IsDefault,
@@ -71,7 +71,7 @@ public sealed class FfprobeRunner
         foreach (var a in new[]
                  {
                      "-v", "error", "-print_format", "json", "-show_format", "-show_streams",
-                     "-protocol_whitelist", "http,https,tcp,tls,crypto", "-rw_timeout", "30000000", "-user_agent", "MovieHub/1.0", url
+                     "-protocol_whitelist", "http,https,tcp,tls,crypto", "-rw_timeout", "30000000", "-user_agent", "StreamApp/1.0", url
                  })
             psi.ArgumentList.Add(a);
 

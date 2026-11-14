@@ -1,14 +1,14 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
-using MovieHub.Data;
-using MovieHub.Infrastructure.Crawler;
-using MovieHub.Infrastructure.Media;
-using MovieHub.Infrastructure.Metadata;
-using MovieHub.Models;
+using StreamApp.Configuration;
+using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
+using StreamApp.Infrastructure.Media;
+using StreamApp.Infrastructure.Metadata;
+using StreamApp.Models;
 
-namespace MovieHub.Services;
+namespace StreamApp.Services;
 
 /// <summary>Live, in-memory progress of a running scan (persisted counters go to ScanHistory).</summary>
 public sealed class ScanProgress

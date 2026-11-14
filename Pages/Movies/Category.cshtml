@@ -1,5 +1,5 @@
 @page "/movies/{slug}"
-@model MovieHub.Pages.Movies.CategoryModel
+@model StreamApp.Pages.Movies.CategoryModel
 @{ ViewData["Title"] = Model.Resolved.Category.Name; }
 <div class="page">
     <h1 class="page-title">@Model.Resolved.Category.Name</h1>

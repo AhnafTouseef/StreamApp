@@ -1,4 +1,4 @@
-/* MovieHub player.
+/* StreamApp player.
  *
  * Source chain: direct ISP URL -> range-aware proxy (/media/stream) -> ffmpeg remux (/media/remux) -> clear message.
  *
@@ -20,13 +20,16 @@
   var el = {
     play: $('play'), mute: $('mute'), volume: $('volume'), seek: $('seek'), buffered: $('buffered'),
     cur: $('t-cur'), dur: $('t-dur'), fs: $('fs'),
-    btnSub: $('btn-sub'), btnAudio: $('btn-audio'), btnSpeed: $('btn-speed'),
+    btnSub: $('btn-sub'), btnAudio: $('btn-audio'), btnSpeed: $('btn-speed'), btnMethod: $('btn-method'), rowSub: $('row-sub'),
     menuSub: $('menu-sub'), menuAudio: $('menu-audio'), menuSpeed: $('menu-speed'),
+    valSub: $('val-sub'), valAudio: $('val-audio'), valSpeed: $('val-speed'), valMethod: $('val-method'),
+    settings: $('settings'), scrim: $('settings-scrim'), setBack: $('set-back'), setTitle: $('set-title'), setClose: $('set-close'),
+    bigPlay: $('big-play'), played: $('played'), seekWrap: $('seek-wrap'), seekTip: $('seek-tip'),
     msg: $('player-message'), msgTitle: $('msg-title'), msgText: $('msg-text'), retry: $('msg-retry'), status: $('stream-status'),
     subs: $('subs'), toast: $('player-toast'), file: $('sub-file'),
     tuner: $('tuner'), tunerClose: $('tuner-close'), tunerTrack: $('tuner-track'), tunerOffset: $('tuner-offset'),
     tunerSlider: $('tuner-slider'), tunerSync: $('tuner-sync'), tunerScale: $('tuner-scale'), tunerReset: $('tuner-reset'),
-    sizeDown: $('size-down'), sizeUp: $('size-up'), sizeRead: $('size-read'), btnCompat: $('btn-compat'), compatSwitch: $('compat-switch'), compatState: $('compat-state'), compatHint: $('compat-hint'), speedRow: $('speed-row'), speedBtns: $('speed-btns')
+    sizeDown: $('size-down'), sizeUp: $('size-up'), sizeRead: $('size-read'), compatSwitch: $('compat-switch'), compatState: $('compat-state'), compatHint: $('compat-hint'), speedRow: $('speed-row'), speedBtns: $('speed-btns')
   };
 
   var mode = 'direct';          // direct | proxy | remux
@@ -46,6 +49,18 @@
   var store = {
     get: function (k) { try { return window.localStorage.getItem(k); } catch (_) { return null; } },
     set: function (k, v) { try { window.localStorage.setItem(k, v); } catch (_) { /* storage unavailable */ } }
+  };
+
+  // Icons that change while playing (the fixed ones are in the page).
+  function svg(path, cls) { return '<svg class="' + (cls || 'st') + '" viewBox="0 0 24 24" aria-hidden="true">' + path + '</svg>'; }
+  var ICON = {
+    play: svg('<path d="M8 5v14l11-7z"/>', 'fl'),
+    pause: svg('<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>', 'fl'),
+    vol: svg('<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>'),
+    volLow: svg('<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/>'),
+    mute: svg('<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>'),
+    fs: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+    fsExit: svg('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>')
   };
 
   function fmt(s) {
@@ -124,7 +139,7 @@
       : oneShotEncode ? 'a copied picture cannot start exactly at the point you jumped to'
       : '';
     var sound = audioCopyOn() ? 'copies the sound when it can' : 'converts the sound';
-    if (!why && !pictureCopyOn()) why = 'chosen with the speed buttons';
+    if (!why && !pictureCopyOn()) why = 'chosen with the stream method buttons';
     return why ? 'Compatibility mode: the server is re-encoding the picture (' + why + ') and ' + sound + '. '
                  + (cfg.hwEncoder ? 'The re-encode runs on the server\'s graphics hardware (' + cfg.hwEncoder + '), so it is lighter on the CPU.' : 'This uses a lot of server CPU.')
                : audioCopyOn() ? 'Compatibility mode: the server copies the picture and the sound (very light on CPU); the sound is converted only when its timing needs fixing.'
@@ -136,7 +151,7 @@
   // Almost every movie works with Fastest. The slower ones are for the rare file whose picture or sound does not show or play right with a copy.
   var SPEEDS = ['fastest', 'fast', 'slow', 'slowest'];
   var SPEED_LABEL = { fastest: 'Fastest', fast: 'Fast', slow: 'Slow', slowest: 'Slowest' };
-  var SPEED_KEY = 'mh.speed.' + cfg.fileId;
+  var SPEED_KEY = 'sa.speed.' + cfg.fileId;
   var speedMode = (function () { var v = store.get(SPEED_KEY); return SPEEDS.indexOf(v) >= 0 ? v : 'fastest'; })();
   // Sound this browser can play inside an MP4 as it is. The browser says so itself (AC3 is often missing, AAC and MP3 nearly never).
   var AUDIO_MP4 = { aac: 'mp4a.40.2', mp3: 'mp4a.6B', ac3: 'ac-3', eac3: 'ec-3' };
@@ -170,8 +185,10 @@
     if (!el.speedRow) return;
     var show = mode === 'remux' && cfg.remuxEnabled;
     el.speedRow.hidden = !show;
-    if (!show) return;
+    if (el.btnMethod) el.btnMethod.hidden = !show;
+    if (!show) { if ($('view-method').classList.contains('is-on')) showView('set-home'); return; }
     var eff = effectiveSpeed();
+    setVal(el.valMethod, SPEED_LABEL[eff]);
     [].forEach.call(el.speedBtns.querySelectorAll('button'), function (b) {
       var m = b.getAttribute('data-speed'), ok = speedAllowed(m);
       b.disabled = !ok;
@@ -184,7 +201,7 @@
     if (SPEEDS.indexOf(m) < 0 || !speedAllowed(m) || m === effectiveSpeed()) return;
     speedMode = m; store.set(SPEED_KEY, m);
     renderSpeed();
-    if (mode === 'remux' && !lazyRemux) { if (!quiet) hintToast('Speed: ' + SPEED_LABEL[m]); load('remux', position(), true); }
+    if (mode === 'remux' && !lazyRemux) { if (!quiet) hintToast('Stream method: ' + SPEED_LABEL[m]); load('remux', position(), true); }
   }
   if (el.speedBtns) el.speedBtns.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('button[data-speed]'); if (b && !b.disabled) setSpeed(b.getAttribute('data-speed'));
@@ -207,7 +224,7 @@
       // webkitAudioDecodedByteCount exists in Chrome, Edge and Safari: it stays 0 while the browser decodes no sound at all (Firefox has no such counter).
       if (seq !== loadSeq || mode !== 'remux' || !audioCopyOn() || video.paused || video.muted || video.volume === 0 || video.currentTime < 1.5) return;
       if (typeof video.webkitAudioDecodedByteCount === 'number' && video.webkitAudioDecodedByteCount === 0)
-        stepDownAudio('The sound did not start. Switching to a more compatible speed…');
+        stepDownAudio('The sound did not start. Switching to a more compatible stream method…');
     }, 3500);
   }
   video.addEventListener('playing', scheduleAudioWatch);
@@ -360,19 +377,28 @@
     if (video.paused) startPlay(); else video.pause();
   }
   el.play.addEventListener('click', togglePlay);
-  video.addEventListener('play', function () { el.play.textContent = '❚❚'; el.play.setAttribute('aria-label', 'Pause'); });
-  video.addEventListener('pause', function () { el.play.textContent = '▶'; el.play.setAttribute('aria-label', 'Play'); player.classList.remove('is-idle'); });
+  el.bigPlay.addEventListener('click', function (e) { e.stopPropagation(); togglePlay(); wake(); });
+  function showPlaying(on) {
+    var icon = on ? ICON.pause : ICON.play, label = on ? 'Pause' : 'Play';
+    [el.play, el.bigPlay].forEach(function (b) { b.innerHTML = icon; b.setAttribute('aria-label', label); });
+    player.classList.toggle('is-paused', !on);
+    if (on) player.classList.add('has-played');
+  }
+  video.addEventListener('play', function () { showPlaying(true); });
+  video.addEventListener('pause', function () { showPlaying(false); player.classList.remove('is-idle'); });
 
   function updateTime() {
     var d = duration(), p = position();
     el.cur.textContent = fmt(p);
     el.dur.textContent = fmt(d);
     if (!seeking && d > 0) el.seek.value = Math.round((p / d) * 1000);
+    paintSeek(d > 0 ? clamp(p / d, 0, 1) : 0);
+    el.seek.setAttribute('aria-valuetext', fmt(p) + ' of ' + fmt(d));
     try {
       var b = video.buffered;
       if (b.length && d > 0) {
         var end = offset + b.end(b.length - 1);
-        el.buffered.style.width = Math.min(100, (end / d) * 100) + '%';
+        el.seekWrap.style.setProperty('--b', clamp(end / d, 0, 1));
       }
     } catch (_) { /* buffered not available yet */ }
   }
@@ -382,9 +408,29 @@
   video.addEventListener('durationchange', updateTime);
 
   var seeking = false;
-  el.seek.addEventListener('input', function () { seeking = true; el.cur.textContent = fmt((el.seek.value / 1000) * duration()); });
+  // The played part of the bar and the thumb use the same fraction, so they always agree.
+  function paintSeek(f) { el.seekWrap.style.setProperty('--p', f); }
+  // A small time label follows the pointer over the bar (and the thumb while dragging).
+  function showTip(f) {
+    el.seekTip.textContent = fmt(f * duration());
+    el.seekTip.style.left = 'calc(7px + (100% - 14px) * ' + f + ')';
+    el.seekWrap.classList.add('is-tip');
+  }
+  var tipTimer = null;
+  el.seekWrap.addEventListener('pointermove', function (e) {
+    if (e.pointerType === 'touch') return;
+    var r = el.seekWrap.getBoundingClientRect(); if (r.width <= 14) return;
+    showTip(clamp((e.clientX - r.left - 7) / (r.width - 14), 0, 1));
+  });
+  el.seekWrap.addEventListener('pointerleave', function () { if (!seeking) el.seekWrap.classList.remove('is-tip'); });
+  el.seek.addEventListener('input', function () {
+    seeking = true;
+    var f = el.seek.value / 1000;
+    el.cur.textContent = fmt(f * duration()); paintSeek(f); showTip(f);
+  });
   el.seek.addEventListener('change', function () {
     seeking = false;
+    clearTimeout(tipTimer); tipTimer = setTimeout(function () { el.seekWrap.classList.remove('is-tip'); }, 600);
     seekTo((el.seek.value / 1000) * duration());
   });
   function seekTo(t) {
@@ -401,7 +447,8 @@
   el.volume.addEventListener('input', function () { video.volume = Number(el.volume.value); video.muted = video.volume === 0; });
   el.mute.addEventListener('click', function () { video.muted = !video.muted; });
   video.addEventListener('volumechange', function () {
-    el.mute.textContent = video.muted || video.volume === 0 ? '🔇' : video.volume < 0.5 ? '🔉' : '🔊';
+    el.mute.innerHTML = video.muted || video.volume === 0 ? ICON.mute : video.volume < 0.5 ? ICON.volLow : ICON.vol;
+    el.mute.setAttribute('aria-label', video.muted || video.volume === 0 ? 'Unmute' : 'Mute');
     el.volume.value = video.muted ? 0 : video.volume;
   });
 
@@ -423,7 +470,11 @@
     } catch (_) { /* not supported */ }
   }
   el.fs.addEventListener('click', toggleFs);
-  document.addEventListener('fullscreenchange', function () { player.classList.toggle('is-full', !!document.fullscreenElement); landscape(!!document.fullscreenElement); });
+  document.addEventListener('fullscreenchange', function () {
+    var on = !!document.fullscreenElement;
+    player.classList.toggle('is-full', on); landscape(on);
+    el.fs.innerHTML = on ? ICON.fsExit : ICON.fs; el.fs.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
+  });
 
   // ------------------------------------------------------------ gestures on the picture (touch and mouse)
   //   tap / click ............ play or pause
@@ -452,7 +503,14 @@
     clearTimeout(gSkipTimer);
     gSkipTimer = setTimeout(function () { var t = gSkipBase + gSkipPending; gSkipPending = 0; seekTo(t); }, 350);
   }
-  function tap(zone) {
+  // One touch on the picture shows the controls, or hides them while the video plays (like on YouTube); a mouse click plays or pauses.
+  function singleTap(wasIdle) {
+    if (gPointerType !== 'touch') { togglePlay(); return; }
+    if (!el.settings.hidden) { closeMenus(); return; }
+    if (wasIdle || video.paused) { wake(); return; }
+    clearTimeout(idleTimer); player.classList.add('is-idle');
+  }
+  function tap(zone, wasIdle) {
     var now = Date.now();
     if (zone !== 'mid' && gChain && gChain.zone === zone && now - gChain.t < G.CHAIN_MS) { gChain.t = now; skip(zone); return; }
     if (gLastTap && now - gLastTap.t < G.DOUBLE_MS && gLastTap.zone === zone) {
@@ -462,7 +520,7 @@
     }
     gLastTap = { t: now, zone: zone };
     clearTimeout(gTapTimer);
-    gTapTimer = setTimeout(function () { gLastTap = null; togglePlay(); }, G.DOUBLE_MS);   // waits briefly to see whether a second tap follows
+    gTapTimer = setTimeout(function () { gLastTap = null; singleTap(wasIdle); }, G.DOUBLE_MS);   // waits briefly to see whether a second tap follows
   }
   function endHold() {
     if (!gHolding) return;
@@ -473,7 +531,7 @@
   video.addEventListener('pointerdown', function (e) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     gPointerType = e.pointerType || 'mouse';
-    gDown = { x: e.clientX, y: e.clientY, id: e.pointerId, zone: zoneOf(e), moved: false };
+    gDown = { x: e.clientX, y: e.clientY, id: e.pointerId, zone: zoneOf(e), moved: false, wasIdle: player.classList.contains('is-idle') };
     try { video.setPointerCapture(e.pointerId); } catch (_) { }
     clearTimeout(gHoldTimer);
     gHoldTimer = setTimeout(function () {
@@ -492,7 +550,7 @@
     try { video.releasePointerCapture(d.id); } catch (_) { }
     if (gHolding) { endHold(); return; }                       // a hold is never also a tap
     if (cancelled || d.moved) return;
-    tap(d.zone);
+    tap(d.zone, d.wasIdle);
   }
   video.addEventListener('pointerup', function () { release(false); });
   video.addEventListener('pointercancel', function () { release(true); });
@@ -500,17 +558,64 @@
   window.addEventListener('blur', function () { gDown = null; clearTimeout(gHoldTimer); endHold(); });
 
   // ------------------------------------------------------------ menus
-  var menus = [[el.btnSub, el.menuSub], [el.btnAudio, el.menuAudio], [el.btnSpeed, el.menuSpeed]];
-  menus.forEach(function (pair) {
-    pair[0].addEventListener('click', function (e) {
-      e.stopPropagation();
-      var open = pair[1].classList.contains('is-open');
-      closeMenus();
-      if (!open) pair[1].classList.add('is-open');
-    });
+  // Everything but play, volume, time and fullscreen lives in one settings panel (gear): a home list and one view per setting, with a back button.
+  var views = ['set-home', 'menu-sub', 'menu-audio', 'menu-speed', 'view-method'];
+  var settingsBtns = [].slice.call(document.querySelectorAll('.js-settings'));
+  function showView(id) {
+    views.forEach(function (v) { var n = $(v); if (n) n.classList.toggle('is-on', v === id); });
+    var home = id === 'set-home';
+    el.setBack.hidden = home;
+    el.setTitle.textContent = home ? 'Settings' : ($(id).getAttribute('data-title') || 'Settings');
+    el.settings.querySelector('.set-views').scrollTop = 0;
+  }
+  function settingsOpen() { return !el.settings.hidden; }
+  function openSettings(view) {
+    showView(view || 'set-home');
+    el.settings.hidden = false; el.scrim.hidden = false;
+    settingsBtns.forEach(function (b) { b.setAttribute('aria-expanded', 'true'); });
+    player.classList.add('has-panel');
+    clearTimeout(idleTimer); player.classList.remove('is-idle');
+  }
+  function closeMenus() {
+    if (el.settings.hidden) return;
+    el.settings.hidden = true; el.scrim.hidden = true;
+    settingsBtns.forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+    player.classList.remove('has-panel');
+    wake();
+  }
+  settingsBtns.forEach(function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); if (settingsOpen()) closeMenus(); else openSettings('set-home'); });
   });
-  function closeMenus() { menus.forEach(function (p) { p[1].classList.remove('is-open'); }); }
-  document.addEventListener('click', function (e) { if (!e.target.closest('.menu') && !e.target.closest('.tuner')) closeMenus(); });
+  // CC (desktop bar) opens the settings straight at the subtitles
+  el.btnSub.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (settingsOpen() && $('menu-sub').classList.contains('is-on')) closeMenus(); else openSettings('menu-sub');
+  });
+  [].forEach.call(el.settings.querySelectorAll('.set-row[data-view]'), function (row) {
+    row.addEventListener('click', function () { showView(row.getAttribute('data-view')); });
+  });
+  el.setBack.addEventListener('click', function () { showView('set-home'); });
+  el.setClose.addEventListener('click', closeMenus);
+  el.scrim.addEventListener('click', closeMenus);
+  document.addEventListener('click', function (e) {
+    if (!settingsOpen()) return;
+    if (e.target.closest('.settings') || e.target.closest('.js-settings') || e.target.closest('.tuner') || e.target === el.btnSub || el.btnSub.contains(e.target)) return;
+    closeMenus();
+  });
+  // The value shown on each row of the home list
+  function setVal(node, text) { if (node) node.textContent = text; }
+  function shortTrack(a, i) { return (a && (a.lang || a.title)) || ('Track ' + (i + 1)); }
+  function refreshRowValues() {
+    setVal(el.valSub, activeTrack ? activeTrack.label : 'Off');
+    var cur = currentAudioIndex(), txt = '';
+    if (nativeAudio) {
+      for (var k = 0; k < video.audioTracks.length; k++) if (video.audioTracks[k].enabled) txt = video.audioTracks[k].label || video.audioTracks[k].language || ('Track ' + (k + 1));
+    } else {
+      for (var i = 0; i < audioTracks.length; i++) if (audioTracks[i].index === cur) txt = shortTrack(audioTracks[i], i);
+      if (!txt && audioTracks.length === 1) txt = shortTrack(audioTracks[0], 0);
+    }
+    setVal(el.valAudio, txt);
+  }
 
   function item(menu, label, on, handler, keepOpen) {
     var b = document.createElement('button');
@@ -520,7 +625,7 @@
     menu.appendChild(b);
     return b;
   }
-  function heading(menu, text) { var h = document.createElement('h4'); h.textContent = text; menu.appendChild(h); }
+  function heading(menu, text) { if (menu.classList.contains('set-view')) return; var h = document.createElement('h4'); h.textContent = text; menu.appendChild(h); }
   // kind: 'tech' (talks about the server, ffmpeg, the dashboard), 'hint' (explains how something works) or 'both'. A hidden note is replaced by `plain` when there is one.
   function note(menu, text, kind, plain) {
     var hidden = (kind === 'tech' && ui.hideTech) || (kind === 'hint' && ui.hideHints) || (kind === 'both' && (ui.hideTech || ui.hideHints));
@@ -598,7 +703,7 @@
   }
   function refreshSpeedUi() {
     var r = video.playbackRate;
-    el.btnSpeed.textContent = fmtRate(r);
+    setVal(el.valSpeed, fmtRate(r));
     el.btnSpeed.classList.toggle('is-on', Math.abs(r - 1) > 0.001);
     if (!speedUi.range) return;
     speedUi.read.textContent = fmtRate(r) + (Math.abs(r - 1) < 0.001 ? ' (normal)' : '');
@@ -691,14 +796,14 @@
   var subTracks = [];            // { key, label, kind, id?, cues|null, offset, scale, state: 'idle'|'loading'|'error' }
   var activeTrack = null;
   var lastActiveKey = null;      // for the C shortcut
-  var subSize = Number(store.get('mh.subsize')) || 1;
+  var subSize = Number(store.get('sa.subsize')) || 1;
 
   (cfg.subtitles || []).forEach(function (s) {
     if (!s.supported) return;
     subTracks.push({ key: 's' + s.id, label: (s.lang || 'Subtitle') + ' — ' + s.file, kind: 'server', id: s.id, cues: null, offset: 0, scale: 1, state: 'idle' });
   });
 
-  function timingKey(t) { return 'mh.subtiming.' + cfg.fileId + '.' + t.key; }
+  function timingKey(t) { return 'sa.subtiming.' + cfg.fileId + '.' + t.key; }
   function loadTiming(t) {
     var raw = store.get(timingKey(t));
     if (!raw) return;
@@ -711,7 +816,7 @@
 
   var userTouched = false;       // once the viewer picks a subtitle (or Off) themselves, nothing is switched on for them any more
   function activate(key, auto) {
-    if (!auto) { userTouched = true; store.set('mh.subs.on', key ? '1' : '0'); }   // remembered: subtitles you turned on stay on for the next movie
+    if (!auto) { userTouched = true; store.set('sa.subs.on', key ? '1' : '0'); }   // remembered: subtitles you turned on stay on for the next movie
     if (!key) { activeTrack = null; renderSubs(true); renderSubMenu(); refreshTuner(); refreshSubButton(); return; }
     var t = trackByKey(key);
     if (!t) return;
@@ -848,7 +953,7 @@
   }
   // Subtitles come on by themselves when they will actually be needed: the movie will not be played with English audio, or the viewer left them on last time.
   function wantSubtitles() {
-    var saved = store.get('mh.subs.on');
+    var saved = store.get('sa.subs.on');
     if (saved === '1') return true;
     if (saved === '0') return false;
     var target = audioTracks.filter(function (a) { return a.index === (cfg.preferredAudio != null ? cfg.preferredAudio : currentAudioIndex()); })[0];
@@ -863,7 +968,7 @@
     if (wantSubtitles()) activate(best.key, true);
   }
   // The browser keeps extracted subtitles in IndexedDB, so the server only extracts a movie's embedded subtitles once per viewer and never stores them.
-  var DB_NAME = 'moviehub', DB_STORE = 'embsubs', DB_CAP = 300, cacheKey = 'f' + cfg.fileId;
+  var DB_NAME = 'streamapp', DB_STORE = 'embsubs', DB_CAP = 300, cacheKey = 'f' + cfg.fileId;
   function idb() {
     return new Promise(function (res) {
       try {
@@ -1025,6 +1130,7 @@
   function refreshSubButton() {
     el.btnSub.classList.toggle('is-on', !!activeTrack);
     el.btnSub.title = activeTrack ? 'Subtitles: ' + activeTrack.label + ' (C to turn off)' : 'Subtitles (C)';
+    refreshRowValues();
   }
   function renderSubMenu() {
     var m = el.menuSub; m.innerHTML = '';
@@ -1128,7 +1234,7 @@
     toast('Aligned: “' + best.text.replace(/\s+/g, ' ').slice(0, 48) + '” starts now (' + fmtOffset(activeTrack.offset) + ').');
   });
   el.tunerReset.addEventListener('click', function () { setTiming(0, 1); });
-  function setSize(v) { subSize = clamp(Math.round(v * 20) / 20, 0.5, 2.5); store.set('mh.subsize', String(subSize)); applySubSize(); }
+  function setSize(v) { subSize = clamp(Math.round(v * 20) / 20, 0.5, 2.5); store.set('sa.subsize', String(subSize)); applySubSize(); }
   el.sizeDown.addEventListener('click', function () { setSize(subSize - 0.1); });
   el.sizeUp.addEventListener('click', function () { setSize(subSize + 0.1); });
   refreshTuner();
@@ -1169,9 +1275,9 @@
     heading(m, 'Audio');
     var many = audioTracks.length > 1;
     // The button is always present so it is never a mystery why there is no audio switch; the menu explains the situation.
-    el.btnAudio.parentElement.style.display = '';
     el.btnAudio.disabled = false;
     el.btnAudio.classList.toggle('is-dim', !many && !nativeAudio);
+    refreshRowValues();
 
     if (nativeAudio) {
       for (var i = 0; i < video.audioTracks.length; i++) {
@@ -1210,7 +1316,7 @@
       note(m, 'Switching restarts playback at the current position; the server converts the sound to stereo AAC.', 'both');
     } else {
       audioTracks.forEach(function (a, i) { var b = document.createElement('div'); b.className = 'note'; b.textContent = '• ' + label(a, i); m.appendChild(b); });
-      note(m, 'This file has several audio tracks, but this browser cannot switch between them and the server has no ffmpeg. Install FFmpeg (it ships with FFprobe) or set Media:FfmpegPath, then restart MovieHub.', 'tech', 'This file has several audio tracks, but switching between them is not available here.');
+      note(m, 'This file has several audio tracks, but this browser cannot switch between them and the server has no ffmpeg. Install FFmpeg (it ships with FFprobe) or set Media:FfmpegPath, then restart StreamApp.', 'tech', 'This file has several audio tracks, but switching between them is not available here.');
     }
   }
 
@@ -1228,26 +1334,18 @@
   // ------------------------------------------------------------ compatibility mode switch
   // On = the server converts the stream with ffmpeg (plays almost anything, supports audio switching, costs server CPU and makes seeking a little slower).
   // Off = the file is played as it is. The button shows what is really happening (an automatic fallback also turns it on) and a manual choice is remembered on this device.
-  var COMPAT_KEY = 'moviehub.compat';
+  var COMPAT_KEY = 'streamapp.compat';
   function updateCompatButton() {
     var on = mode === 'remux';
     var title = !cfg.remuxEnabled ? 'Compatibility mode is not available: the server has no ffmpeg'
       : on ? 'Compatibility mode is ON: the server converts the video. Click to play the original file instead.'
            : 'Compatibility mode is OFF: playing the original file. Click to let the server convert the video.';
     if (ui.hideTech) title = 'Compatibility mode';
-    var b = el.btnCompat;
-    if (b) {
-      b.classList.toggle('is-on', on);
-      b.setAttribute('aria-pressed', on ? 'true' : 'false');
-      b.disabled = !cfg.remuxEnabled;
-      b.textContent = on ? 'Compat: on' : 'Compat: off';
-      b.title = title;
-    }
     renderSpeed();
-    // the same switch under the player, easier to find and to read
     if (el.compatSwitch) {
       el.compatSwitch.checked = on;
       el.compatSwitch.disabled = !cfg.remuxEnabled;
+      el.compatSwitch.title = title;
       if (el.compatState) el.compatState.textContent = on ? 'On' : 'Off';
       if (el.compatHint) el.compatHint.textContent = !cfg.remuxEnabled ? 'Needs ffmpeg on the server.'
         : on ? 'The server converts the video (audio switching and more formats; uses server CPU).'
@@ -1274,7 +1372,6 @@
     }
     renderAudioMenu();
   }
-  if (el.btnCompat) el.btnCompat.addEventListener('click', function () { setCompat(mode !== 'remux'); });
   if (el.compatSwitch) el.compatSwitch.addEventListener('change', function () { setCompat(el.compatSwitch.checked); });
 
   // ------------------------------------------------------------ idle controls + keyboard
@@ -1282,13 +1379,13 @@
   function wake() {
     player.classList.remove('is-idle');
     clearTimeout(idleTimer);
-    if (!video.paused && el.tuner.hidden) idleTimer = setTimeout(function () { player.classList.add('is-idle'); }, 3000);
+    if (!video.paused && el.tuner.hidden && el.settings.hidden) idleTimer = setTimeout(function () { player.classList.add('is-idle'); }, 3000);
   }
   ['mousemove', 'touchstart', 'keydown'].forEach(function (ev) { player.addEventListener(ev, wake, { passive: true }); });
   video.addEventListener('play', wake);
 
   player.addEventListener('keydown', function (e) {
-    if (e.target.closest && (e.target.closest('.tuner') || e.target.closest('.menu'))) {
+    if (e.target.closest && (e.target.closest('.tuner') || e.target.closest('.settings'))) {
       if (e.key === 'Escape') { closeTuner(); closeMenus(); }
       return; // the panels' own controls handle their keys
     }

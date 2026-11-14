@@ -4,9 +4,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>MovieHub</RootNamespace>
-    <AssemblyName>MovieHub</AssemblyName>
-    <UserSecretsId>moviehub-7f3c1b52</UserSecretsId>
+    <RootNamespace>StreamApp</RootNamespace>
+    <AssemblyName>StreamApp</AssemblyName>
+    <UserSecretsId>streamapp-7f3c1b52</UserSecretsId>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Never compile generated files from any obj/bin folder (also nested ones left behind by extracting a zip inside the project). -->
     <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>

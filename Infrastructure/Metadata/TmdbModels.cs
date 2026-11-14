@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace MovieHub.Infrastructure.Metadata;
+namespace StreamApp.Infrastructure.Metadata;
 
 public sealed class TmdbSearchResponse
 {

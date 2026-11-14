@@ -1,4 +1,4 @@
-/* MovieHub admin: popup forms (<dialog class="modal">). */
+/* StreamApp admin: popup forms (<dialog class="modal">). */
 (function () {
   'use strict';
   document.querySelectorAll('dialog.modal').forEach(function (d) {
@@ -95,7 +95,7 @@
     if (changed) refreshList();
   });
   window.addEventListener('message', function (e) {
-    if (e.origin === window.location.origin && e.data && e.data.moviehub === 'edit-done') { dirty = true; closeEdit(); }   // the removal page posts this while it is still loading, i.e. before its load event
+    if (e.origin === window.location.origin && e.data && e.data.streamapp === 'edit-done') { dirty = true; closeEdit(); }   // the removal page posts this while it is still loading, i.e. before its load event
   });
 })();
 /* Library: while a scan is running, keep the source rows (status, Stop scan button) up to date without a page reload.

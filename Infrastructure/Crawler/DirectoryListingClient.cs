@@ -2,9 +2,9 @@ using System.Globalization;
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
-using MovieHub.Configuration;
+using StreamApp.Configuration;
 
-namespace MovieHub.Infrastructure.Crawler;
+namespace StreamApp.Infrastructure.Crawler;
 
 public sealed record DirEntry(string Name, string Url, bool IsDirectory, long? Size, DateTime? Modified);
 

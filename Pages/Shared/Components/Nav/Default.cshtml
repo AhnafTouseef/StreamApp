@@ -1,4 +1,4 @@
-@model IReadOnlyList<MovieHub.Models.NavCategory>
+@model IReadOnlyList<StreamApp.Models.NavCategory>
 @{
     var path = Context.Request.Path.Value ?? "/";
     bool Active(string p) => path.Equals(p, StringComparison.OrdinalIgnoreCase);

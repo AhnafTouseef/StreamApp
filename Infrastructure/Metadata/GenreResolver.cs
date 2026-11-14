@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using MovieHub.Data;
-using MovieHub.Models;
-using MovieHub.Services;
+using StreamApp.Data;
+using StreamApp.Models;
+using StreamApp.Services;
 
-namespace MovieHub.Infrastructure.Metadata;
+namespace StreamApp.Infrastructure.Metadata;
 
 /// <summary>
 /// Creates genre rows on demand. Runs in its own short transaction behind a lock so concurrent folder tasks

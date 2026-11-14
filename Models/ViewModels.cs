@@ -1,4 +1,4 @@
-namespace MovieHub.Models;
+namespace StreamApp.Models;
 
 public sealed class MovieCardDto
 {
