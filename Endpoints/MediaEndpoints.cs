@@ -120,7 +120,7 @@ public static class MediaEndpoints
 
     private static async Task<IResult> RemuxAsync(
         int fileId, HttpContext ctx, IMediaLookup lookup, FfmpegTool ffmpeg, HardwareEncoder hardware,
-        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null, string? hevc = null, string? acopy = null)
+        SourcePolicy policy, ILogger<MediaLog> log, int? audio = null, double t = 0, string? video = null, double? k = null, string? hevc = null, string? acopy = null, string? s = null)
     {
         if (!ffmpeg.IsAvailable)
             return Results.Problem("Server-side audio switching is unavailable: ffmpeg was not found. Install FFmpeg or set Media:FfmpegPath.", statusCode: 501);
@@ -129,6 +129,12 @@ public static class MediaEndpoints
         if (file == null) return Results.NotFound();
         if (!policy.IsAllowed(file.Url)) return Results.StatusCode(403);
         if (t < 0 || double.IsNaN(t) || double.IsInfinity(t)) return Results.BadRequest("Invalid start time.");
+
+        // One compatibility stream per viewer and movie: a reconnect, seek or method change replaces the viewer's previous stream at once, even when that one is
+        // a half-dead connection the server has not noticed yet (a phone that lost signal, a tunnel that dropped the link). Without this, such a stream
+        // would keep its ffmpeg process and its slot until the operating system gives up on the socket, and the viewer's own retry could be refused as "busy".
+        using var lease = await ViewerStreams.StartAsync(s, fileId, ctx.RequestAborted);
+        var ct = lease?.Token ?? ctx.RequestAborted;
 
         var audioStream = PickAudio(file.Streams, audio);
         var videoStream = file.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
@@ -158,7 +164,7 @@ public static class MediaEndpoints
                 {
                     // The seek lookup (/start) usually measured this already while it was finding the keyframe, so the stream does not have to wait for a second look.
                     if (!SyncTimes.TryGet(fileId, t, audioStream.Index, out var times))
-                        times = await FirstPacketTimesAsync(ffmpeg.Path!, file.Url, t, audioStream.Index, ctx.RequestAborted);
+                        times = await FirstPacketTimesAsync(ffmpeg.Path!, file.Url, t, audioStream.Index, ct);
                     var (v0, a0) = times;
                     if (v0 is { } vs && a0 is { } au && Math.Abs(au - vs) <= AudioSyncToleranceSeconds) { copyAudio = true; audioWhy = "ok"; }
                     else audioWhy = v0 is { } v1 && a0 is { } a1 ? $"the sound starts {a1 - v1:+0.00;-0.00} s from the picture" : "the start of the sound could not be measured";
@@ -173,7 +179,7 @@ public static class MediaEndpoints
         HwEncoderInfo? hw = null;
         if (!copyVideo)
         {
-            try { hw = await hardware.GetAsync(ctx.RequestAborted); }
+            try { hw = await hardware.GetAsync(ct); }
             catch (OperationCanceledException) { return Results.StatusCode(499); }
         }
 
@@ -182,7 +188,7 @@ public static class MediaEndpoints
         async Task<bool> AcquireAsync(SemaphoreSlim? sem, TimeSpan wait)
         {
             if (sem == null) return true;
-            holdsSlot = await sem.WaitAsync(wait, ctx.RequestAborted);
+            holdsSlot = await sem.WaitAsync(wait, ct);
             return holdsSlot;
         }
         if (slot != null)
@@ -265,15 +271,15 @@ public static class MediaEndpoints
                 // The hardware encoder is only known to work if the machine says so; when a stream fails to produce anything with it (driver, unsupported source format),
                 // the same stream is silently started again with the software encoder, so the viewer gets their video either way.
                 var first = new byte[81920];
-                var n = await proc.StandardOutput.BaseStream.ReadAsync(first, ctx.RequestAborted);
+                var n = await proc.StandardOutput.BaseStream.ReadAsync(first, ct);
                 if (n > 0)
-                    await ctx.Response.Body.WriteAsync(first.AsMemory(0, n), ctx.RequestAborted);
+                    await ctx.Response.Body.WriteAsync(first.AsMemory(0, n), ct);
                 else
                 {
                     var failed = hw;
                     string why;
-                    try { using var wait = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted); wait.CancelAfter(TimeSpan.FromSeconds(3)); await errText!.WaitAsync(wait.Token); why = FirstLine(errText.Result); }
-                    catch (OperationCanceledException) when (!ctx.RequestAborted.IsCancellationRequested) { why = "no output"; }
+                    try { using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct); wait.CancelAfter(TimeSpan.FromSeconds(3)); await errText!.WaitAsync(wait.Token); why = FirstLine(errText.Result); }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested) { why = "no output"; }
                     log.LogWarning("Hardware encoder {Name} produced no video for file {FileId} ({Why}); trying the software encoder.", failed.Name, fileId, why);
                     try { if (!proc.HasExited) proc.Kill(true); } catch { }
                     proc.Dispose();
@@ -288,16 +294,16 @@ public static class MediaEndpoints
                     }
                     hw = null;
                     proc = StartFfmpeg(null);
-                    n = await proc.StandardOutput.BaseStream.ReadAsync(first, ctx.RequestAborted);
+                    n = await proc.StandardOutput.BaseStream.ReadAsync(first, ct);
                     if (n > 0)
                     {
                         // The software encoder worked where the hardware one did not: the fault is the hardware (not the source), so stop trying it for a while.
                         hardware.ReportFailure(failed, why);
-                        await ctx.Response.Body.WriteAsync(first.AsMemory(0, n), ctx.RequestAborted);
+                        await ctx.Response.Body.WriteAsync(first.AsMemory(0, n), ct);
                     }
                 }
             }
-            await proc.StandardOutput.BaseStream.CopyToAsync(ctx.Response.Body, 81920, ctx.RequestAborted);
+            await proc.StandardOutput.BaseStream.CopyToAsync(ctx.Response.Body, 81920, ct);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
@@ -318,6 +324,53 @@ public static class MediaEndpoints
                     endedByItself ? "ffmpeg finished by itself (exit code " + code + ")" : "the viewer left or moved on, ffmpeg stopped");
         }
         return Results.Empty;
+    }
+
+    /// <summary>
+    /// Remembers which compatibility stream each viewer (the random id the player sends as <c>s</c>, one per page view) has running for a movie,
+    /// so starting a new one can stop the old one first. A request without an id behaves as before (nothing is replaced).
+    /// </summary>
+    internal static class ViewerStreams
+    {
+        /// <summary>How long a new stream waits for the one it replaces to let go of its ffmpeg process and slot.</summary>
+        private static readonly TimeSpan ReleaseWait = TimeSpan.FromSeconds(3);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lease> Items = new();
+
+        internal sealed class Lease : IDisposable
+        {
+            private readonly string _key;
+            private readonly CancellationTokenSource _cts;
+            internal readonly TaskCompletionSource Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            internal Lease(string key, CancellationToken requestAborted) { _key = key; _cts = CancellationTokenSource.CreateLinkedTokenSource(requestAborted); }
+            /// <summary>Cancelled when the request is aborted or the same viewer starts another stream.</summary>
+            public CancellationToken Token => _cts.Token;
+            internal void Replace() { try { _cts.Cancel(); } catch (ObjectDisposedException) { } }
+            public void Dispose()
+            {
+                Items.TryRemove(new KeyValuePair<string, Lease>(_key, this));
+                Done.TrySetResult();
+                // the token source is left to the garbage collector: a newer request may still be calling Replace() on it
+            }
+        }
+
+        /// <summary>Registers a new stream for the viewer and movie, stops the previous one and waits (briefly) until it has released its resources. Null when there is no viewer id.</summary>
+        internal static async Task<Lease?> StartAsync(string? viewer, int fileId, CancellationToken requestAborted)
+        {
+            if (string.IsNullOrWhiteSpace(viewer) || viewer.Length > 64) return null;
+            var lease = new Lease(viewer + "|" + fileId, requestAborted);
+            Lease? previous = null;
+            Items.AddOrUpdate(viewer + "|" + fileId, lease, (_, old) => { previous = old; return lease; });
+            if (previous != null)
+            {
+                previous.Replace();
+                try { await Task.WhenAny(previous.Done.Task, Task.Delay(ReleaseWait, requestAborted)); }
+                catch (OperationCanceledException) { /* this request was abandoned too; its own cleanup follows */ }
+            }
+            return lease;
+        }
+
+        /// <summary>Number of viewers with a running stream (for tests).</summary>
+        internal static int Count => Items.Count;
     }
 
     /// <summary>The largest gap between the start of the picture and the start of the sound for which the sound is copied (a bit under what people notice).</summary>
