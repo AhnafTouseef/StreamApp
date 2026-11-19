@@ -216,6 +216,17 @@ Removing a movie only deletes the catalog row — nothing is touched on the ISP 
 | `Admin:Username`, `PasswordHash`, `Password`, `SessionHours` | admin, –, –, 8 | admin login |
 | `Seed:Sources[]` | the two ISP servers | sources created on first start (name, category slug, URL, strategy, cooldown, include/exclude) |
 
+## TV series
+
+A source has a **Content type** (Admin → Library): **Automatic** (default), **Movies** or **Series**. Automatic looks at the folder structure only, never at category names: season folders that contain video files, or episode-numbered files (`S01E01`), mean series; otherwise the source is treated as movies exactly as before. Setting Movies or Series overrides the detection. Categories stay independent labels, so a series can sit in any category next to movies.
+
+- **Layouts.** `Root → Series → Season → Episodes` and `Root → Group (A, B, 0-9 …) → Series → Season → Episodes` both work, as do episodes directly in the series folder, episodes in their own sub-folders, and sibling folders named `Show Name S01`, `Show Name S02` (merged into one series). Nothing assumes one provider's layout.
+- **Episode numbers.** `S01E01`, `S01E01E02`, `1x05`, `Season 1 Episode 5`, `Ep 05`, `Show - 05`, `05 - Title`. The season comes from the name, else from the season folder (`Season 1`, `S02`, `Specials` = 0). Files without a recognisable number are naturally sorted and numbered in order. File names and source paths are stored unchanged.
+- **Metadata.** Series are matched against TMDB **TV** (never movie) data; seasons and episodes get their TMDB titles, overviews, air dates and stills. The first image next to the season folders is the thumbnail until TMDB provides a poster.
+- **Incremental scans.** A routine scan reads new series, series whose folder changed (a new season folder) and recently active series, and within a series only the season folders whose date changed. Deep scans read everything.
+- **Playback.** `/series/{id}` is the details page (Play starts Season 1, Episode 1; seasons are horizontally scrollable buttons; picking an episode starts it). `/watch/{id}?episode={episodeId}` is the normal player page with the season/episode picker below the player; the player itself is unchanged. ffprobe runs for the first episode of each season during a scan; every other episode is inspected the first time it is played (or by the inspection backfill).
+- **Database.** Existing databases are upgraded in place on start-up (new tables and columns only; no existing data is touched). Changing a source from Movies to Series leaves its old entries in place; remove them from the admin movie list if you do not want them.
+
 ## Hiding a category
 
 **Hide** on Admin > Library removes the category from the navigation and hides its movies everywhere: home rows, search, genre lists, the category page and direct

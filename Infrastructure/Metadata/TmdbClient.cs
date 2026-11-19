@@ -48,6 +48,23 @@ public sealed class TmdbClient
         GetAsync<TmdbMovieDetails>($"/movie/{tmdbId}",
             new Dictionary<string, string> { ["append_to_response"] = "credits,external_ids" }, ct);
 
+    // ---- TV (separate TMDB endpoints and id space from movies)
+
+    public async Task<List<TmdbSearchItem>> SearchTvAsync(string title, int? year, CancellationToken ct)
+    {
+        var q = new Dictionary<string, string> { ["query"] = title, ["include_adult"] = "false", ["page"] = "1" };
+        if (year is { } y) q["first_air_date_year"] = y.ToString();
+        var resp = await GetAsync<TmdbTvSearchResponse>("/search/tv", q, ct);
+        return resp?.Results.Select(r => r.ToSearchItem()).ToList() ?? new List<TmdbSearchItem>();
+    }
+
+    public Task<TmdbTvDetails?> GetTvDetailsAsync(int tmdbId, CancellationToken ct) =>
+        GetAsync<TmdbTvDetails>($"/tv/{tmdbId}",
+            new Dictionary<string, string> { ["append_to_response"] = "credits,external_ids" }, ct);
+
+    public Task<TmdbSeasonDetails?> GetTvSeasonAsync(int tmdbId, int seasonNumber, CancellationToken ct) =>
+        GetAsync<TmdbSeasonDetails>($"/tv/{tmdbId}/season/{seasonNumber}", new Dictionary<string, string>(), ct);
+
     private async Task<T?> GetAsync<T>(string path, IDictionary<string, string> query, CancellationToken ct) where T : class
     {
         if (!_opt.IsConfigured) throw new TmdbException("TMDB is not configured (set Tmdb:ApiKey).");

@@ -17,6 +17,9 @@ public class AppDbContext : DbContext
     public DbSet<MediaStream> MediaStreams => Set<MediaStream>();
     public DbSet<Subtitle> Subtitles => Set<Subtitle>();
     public DbSet<ScanHistory> ScanHistories => Set<ScanHistory>();
+    public DbSet<Series> SeriesEntries => Set<Series>();
+    public DbSet<Season> Seasons => Set<Season>();
+    public DbSet<Episode> Episodes => Set<Episode>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -36,6 +39,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.RootUrl).HasMaxLength(1000).IsRequired();
             e.Property(x => x.ScanStrategy).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.LastScanStatus).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.ContentType).HasConversion<string>().HasMaxLength(16);
             e.HasIndex(x => x.RootUrl).IsUnique();
             e.HasOne(x => x.Category).WithMany(x => x.Sources)
                 .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
@@ -55,6 +59,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.FolderName).HasMaxLength(500).IsRequired();
             e.Property(x => x.SourceFolderUrl).HasMaxLength(1500).IsRequired();
             e.Property(x => x.MatchStatus).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.ContentType).HasConversion<string>().HasMaxLength(16);
+            e.HasOne(x => x.Series).WithOne(x => x.Catalog).HasForeignKey<Series>(x => x.Id).OnDelete(DeleteBehavior.Cascade);
             // One row per source folder. Deliberately NO unique index on TmdbId or Title:
             // copies of the same film from different directories stay independent entries.
             e.HasIndex(x => new { x.SourceId, x.SourceFolderUrl }).IsUnique();
@@ -67,6 +73,24 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Source).WithMany(x => x.Movies)
                 .HasForeignKey(x => x.SourceId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Series>(e =>
+        {
+            e.ToTable("Series");
+            e.Property(x => x.Id).ValueGeneratedNever();
+        });
+
+        b.Entity<Season>(e =>
+        {
+            e.HasIndex(x => new { x.SeriesId, x.Number }).IsUnique();
+            e.HasOne(x => x.Series).WithMany(x => x.Seasons).HasForeignKey(x => x.SeriesId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<Episode>(e =>
+        {
+            e.HasIndex(x => new { x.SeasonId, x.Number }).IsUnique();
+            e.HasOne(x => x.Season).WithMany(x => x.Episodes).HasForeignKey(x => x.SeasonId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<Genre>(e =>
@@ -91,8 +115,11 @@ public class AppDbContext : DbContext
             e.Property(x => x.FileName).HasMaxLength(500).IsRequired();
             e.Property(x => x.FileUrl).HasMaxLength(1500).IsRequired();
             e.HasIndex(x => new { x.MovieId, x.FileUrl }).IsUnique();
+            e.HasIndex(x => x.EpisodeId);
             e.HasOne(x => x.Movie).WithMany(x => x.MediaFiles)
                 .HasForeignKey(x => x.MovieId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Episode).WithMany(x => x.MediaFiles)
+                .HasForeignKey(x => x.EpisodeId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<MediaStream>(e =>
@@ -106,8 +133,11 @@ public class AppDbContext : DbContext
         b.Entity<Subtitle>(e =>
         {
             e.Property(x => x.FileUrl).HasMaxLength(1500).IsRequired();
+            e.HasIndex(x => x.EpisodeId);
             e.HasOne(x => x.Movie).WithMany(x => x.Subtitles)
                 .HasForeignKey(x => x.MovieId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Episode).WithMany(x => x.Subtitles)
+                .HasForeignKey(x => x.EpisodeId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<ScanHistory>(e =>

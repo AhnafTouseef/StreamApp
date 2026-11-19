@@ -2,15 +2,17 @@
 @model StreamApp.Pages.Watch.IndexModel
 @using System.Text.Json
 @{
-    ViewData["Title"] = "Watch " + Model.Movie.Title;
+    ViewData["Title"] = "Watch " + Model.Movie.Title + (Model.CurrentEpisode != null ? $" S{Model.CurrentEpisode.SeasonNumber:00}E{Model.CurrentEpisode.NumberLabel.PadLeft(2, '0')}" : "");
     var m = Model.Movie;
     var f = Model.Current;
+    var isSeries = Model.Series != null;
+    var backUrl = isSeries ? "/series/" + m.Id : "/movie/" + m.Id;
 }
 <div class="watch-page">
     @if (f == null)
     {
         <partial name="_EmptyState" model="@("Nothing to play", Site.Current.ViewFor(User.Identity?.IsAuthenticated == true).HideHints ? "No video file is available for this entry right now." : "No video file is recorded for this entry. An administrator can re-scan its source.")" />
-        <p style="text-align:center"><a class="btn btn-ghost" href="/movie/@m.Id">Back to details</a></p>
+        <p style="text-align:center"><a class="btn btn-ghost" href="@backUrl">Back to details</a></p>
     }
     else
     {
@@ -58,7 +60,7 @@
             </div>
 
             <div class="topbar" id="topbar">
-                <span class="player-title" id="player-title">@m.Title @(m.ReleaseYear.HasValue ? $"({m.ReleaseYear})" : "")</span>
+                <span class="player-title" id="player-title">@(Model.PlayerTitle ?? (m.Title + " " + (m.ReleaseYear.HasValue ? $"({m.ReleaseYear})" : "")))</span>
                 <button class="ctrl-btn top-gear js-settings" id="btn-settings-top" type="button" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false" title="Settings"><svg class="st" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
             </div>
 
@@ -117,7 +119,16 @@
         </div>
 
         <div class="watch-info">
-            <h1>@m.Title @(m.ReleaseYear.HasValue ? $"({m.ReleaseYear})" : "")</h1>
+            @if (Model.CurrentEpisode is { } ce)
+            {
+                <h1>@m.Title</h1>
+                <div class="ep-now"><strong>S@(ce.SeasonNumber.ToString("00"))E@(ce.NumberLabel.PadLeft(2, '0'))</strong>@(string.IsNullOrWhiteSpace(ce.Title) ? "" : " · " + ce.Title)</div>
+                @if (!string.IsNullOrWhiteSpace(ce.Overview)) { <p class="muted small ep-overview">@ce.Overview</p> }
+            }
+            else
+            {
+                <h1>@m.Title @(m.ReleaseYear.HasValue ? $"({m.ReleaseYear})" : "")</h1>
+            }
             <div class="muted tech-only" id="stream-status">Streaming directly from the source server.</div>
             <div class="muted">@f.FileName</div>
             <div class="muted small hint-only" id="sub-tip" hidden>No subtitles found for this movie: drag a subtitle file (.srt, .vtt, .ass) onto the video to use one.</div>
@@ -130,7 +141,12 @@
                     }
                 </div>
             }
-            <p><a href="/movie/@m.Id">← Back to details</a></p>
+            @if (isSeries)
+            {
+                <partial name="_SeriesPicker" model="@(new SeriesPickerModel(Model.Series!, Model.CurrentEpisode?.Id))" />
+                <label class="autonext muted small"><input type="checkbox" id="autonext" checked /> Play the next episode automatically</label>
+            }
+            <p><a href="@backUrl">← Back to details</a></p>
         </div>
         <script type="application/json" id="player-config">@Html.Raw(Model.ConfigJson)</script>
     }
@@ -138,4 +154,5 @@
 
 @section Scripts {
     @if (f != null) { <script src="~/js/player.js" asp-append-version="true"></script> }
+    @if (f != null && isSeries) { <script src="~/js/series.js" asp-append-version="true"></script> }
 }

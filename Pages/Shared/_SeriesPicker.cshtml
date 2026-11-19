@@ -1,0 +1,28 @@
+@model SeriesPickerModel
+@{
+    var view = Model.View;
+    var cur = Model.CurrentEpisodeId.HasValue ? view.Find(Model.CurrentEpisodeId.Value) : null;
+    var activeSeason = cur?.SeasonNumber ?? view.Seasons.FirstOrDefault()?.Number ?? 1;
+    var next = cur != null ? view.Next(cur) : null;
+    var entryId = view.Entry.Id;
+}
+<div class="series-picker" data-series="@entryId" @(next != null ? new Microsoft.AspNetCore.Html.HtmlString($"data-next=\"/watch/{entryId}?episode={next.Id}&amp;next=1\"") : Microsoft.AspNetCore.Html.HtmlString.Empty)>
+    <div class="season-tabs" role="tablist" aria-label="Seasons">
+        @foreach (var s in view.Seasons)
+        {
+            <button type="button" role="tab" class="season-btn @(s.Number == activeSeason ? "is-active" : "")" data-season="@s.Number" aria-selected="@(s.Number == activeSeason ? "true" : "false")" title="@(s.Name ?? s.Label)">@s.Label</button>
+        }
+    </div>
+    @foreach (var s in view.Seasons)
+    {
+        <div class="ep-grid" role="tabpanel" data-season-panel="@s.Number" @(s.Number == activeSeason ? null : "hidden")>
+            @foreach (var e in s.Episodes)
+            {
+                var label = !string.IsNullOrWhiteSpace(e.Title) ? e.Title : "Episode " + e.NumberLabel;
+                <a class="ep-btn @(cur?.Id == e.Id ? "is-active" : "")" href="/watch/@entryId?episode=@e.Id" title="@label">
+                    <b>@e.NumberLabel</b><span>@label</span>
+                </a>
+            }
+        </div>
+    }
+</div>

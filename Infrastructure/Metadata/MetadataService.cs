@@ -15,7 +15,7 @@ public sealed record MatchOutcome(MatchStatus Status, int? TmdbId, string Note);
 /// (exact title and year); anything else stays <see cref="MatchStatus.Ambiguous"/> or <see cref="MatchStatus.Unmatched"/>
 /// so an administrator can correct it. Nothing is ever associated blindly with the first search hit.
 /// </summary>
-public sealed class MetadataService
+public sealed partial class MetadataService
 {
     private readonly TmdbClient _tmdb;
     private readonly OmdbClient _omdb;
@@ -90,8 +90,8 @@ public sealed class MetadataService
     }
 
     /// <summary>Searches TMDB for the admin "correct the match" screen.</summary>
-    public async Task<List<TmdbSearchItem>> SearchForAdminAsync(string title, int? year, CancellationToken ct) =>
-        await _tmdb.SearchAsync(title, year, ct);
+    public async Task<List<TmdbSearchItem>> SearchForAdminAsync(string title, int? year, CancellationToken ct, CatalogType type = CatalogType.Movie) =>
+        type == CatalogType.Series ? await _tmdb.SearchTvAsync(title, year, ct) : await _tmdb.SearchAsync(title, year, ct);
 
     // ------------------------------------------------------------------ applying
 
@@ -123,8 +123,10 @@ public sealed class MetadataService
     public async Task<bool> UseTmdbPosterAsync(Movie movie, CancellationToken ct)
     {
         if (movie.TmdbId is not { } id) return false;
-        var d = await _tmdb.GetDetailsAsync(id, ct);
-        var url = _tmdb.ImageUrl("w500", d?.PosterPath);
+        var posterPath = movie.ContentType == CatalogType.Series
+            ? (await _tmdb.GetTvDetailsAsync(id, ct))?.PosterPath
+            : (await _tmdb.GetDetailsAsync(id, ct))?.PosterPath;
+        var url = _tmdb.ImageUrl("w500", posterPath);
         if (url == null) return false;
         movie.PosterUrl = url;
         return true;
@@ -133,6 +135,7 @@ public sealed class MetadataService
     /// <summary>Fetches full TMDB details for an id and copies them onto the movie (used by scans and the admin correction screen).</summary>
     public async Task ApplyTmdbIdAsync(AppDbContext db, Movie movie, int tmdbId, MatchStatus status, CancellationToken ct)
     {
+        if (movie.ContentType == CatalogType.Series) { await ApplySeriesTmdbIdAsync(db, movie, tmdbId, status, ct); return; }
         var d = await _tmdb.GetDetailsAsync(tmdbId, ct)
                 ?? throw new TmdbException($"TMDB has no movie with id {tmdbId}.");
 

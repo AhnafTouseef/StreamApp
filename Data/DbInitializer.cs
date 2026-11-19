@@ -28,6 +28,8 @@ public static class DbInitializer
             await db.Database.EnsureCreatedAsync(ct);
         }
 
+        await SchemaUpgrade.ApplyAsync(db, log, ct);   // additive only: new tables/columns for features added after the database was created
+
         try
         {
             // WAL lets page reads proceed while the crawler writes.
@@ -113,6 +115,7 @@ public static class DbInitializer
                 Name = s.Name,
                 RootUrl = s.RootUrl.EndsWith('/') ? s.RootUrl : s.RootUrl + "/",
                 ScanStrategy = strategy,
+                ContentType = Enum.TryParse<SourceContentType>(s.ContentType, true, out var ct2) ? ct2 : SourceContentType.Automatic,
                 CooldownHours = s.CooldownHours ?? crawler.DefaultCooldownHours,
                 IncludedFolders = s.IncludedFolders,
                 ExcludedFolders = s.ExcludedFolders,

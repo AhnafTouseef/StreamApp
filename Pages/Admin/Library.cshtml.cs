@@ -28,6 +28,7 @@ public class SourceInput
     [Required] public int CategoryId { get; set; }
     [Required, StringLength(1000)] public string RootUrl { get; set; } = "";
     public ScanStrategy ScanStrategy { get; set; } = ScanStrategy.Auto;
+    public SourceContentType ContentType { get; set; } = SourceContentType.Automatic;
     [Range(1, 8760)] public int CooldownHours { get; set; } = 12;
     public string? IncludedFolders { get; set; }
     public string? ExcludedFolders { get; set; }
@@ -121,7 +122,7 @@ public class LibraryModel : AdminPageModel
         {
             Src = new SourceInput
             {
-                Id = s.Id, Name = s.Name, CategoryId = s.CategoryId, RootUrl = s.RootUrl, ScanStrategy = s.ScanStrategy, CooldownHours = s.CooldownHours,
+                Id = s.Id, Name = s.Name, CategoryId = s.CategoryId, RootUrl = s.RootUrl, ScanStrategy = s.ScanStrategy, ContentType = s.ContentType, CooldownHours = s.CooldownHours,
                 IncludedFolders = s.IncludedFolders, ExcludedFolders = s.ExcludedFolders, IsEnabled = s.IsEnabled
             };
             OpenDialog = "source";
@@ -239,6 +240,7 @@ public class LibraryModel : AdminPageModel
         entity.CategoryId = Src.CategoryId;
         entity.RootUrl = root;
         entity.ScanStrategy = Src.ScanStrategy;
+        entity.ContentType = Src.ContentType;
         entity.CooldownHours = Src.CooldownHours;
         entity.IncludedFolders = string.IsNullOrWhiteSpace(Src.IncludedFolders) ? null : Src.IncludedFolders.Trim();
         entity.ExcludedFolders = string.IsNullOrWhiteSpace(Src.ExcludedFolders) ? null : Src.ExcludedFolders.Trim();

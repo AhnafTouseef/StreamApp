@@ -57,6 +57,8 @@ public sealed class CrawlerService
     private readonly CrawlerOptions _opt;
     private readonly MediaOptions _mediaOpt;
     private readonly ILogger<CrawlerService> _log;
+    private readonly SeriesCrawler _series;
+    private readonly ContentTypeDetector _detector;
 
     public CrawlerService(
         IDbContextFactory<AppDbContext> factory, DirectoryListingClient listing, MediaKinds kinds,
@@ -72,6 +74,8 @@ public sealed class CrawlerService
         _opt = opt.Value;
         _mediaOpt = mediaOpt.Value;
         _log = log;
+        _series = new SeriesCrawler(factory, listing, kinds, inspect, metadata, opt.Value, mediaOpt.Value, log);
+        _detector = new ContentTypeDetector(listing, kinds);
     }
 
     // ================================================================== public API
@@ -87,9 +91,10 @@ public sealed class CrawlerService
         {
             var entries = await _listing.ListAsync(source.RootUrl, ct);
             var suggestion = StrategyDetector.Suggest(entries, _kinds);
+            var contentType = await ResolveContentTypeAsync(source, entries, new FolderFilter(source.IncludedFolders, source.ExcludedFolders), ct);
             var sample = entries.OrderBy(e => !e.IsDirectory).ThenBy(e => e.Name).Take(12)
                 .Select(e => (e.IsDirectory ? "[dir] " : "") + e.Name).ToList();
-            return new SourceTestResult(true, $"Connected. {entries.Count} entries found.", suggestion, sample);
+            return new SourceTestResult(true, $"Connected. {entries.Count} entries found. Content type: {contentType.Type switch { CatalogType.Series => "Series", _ => "Movies" }} ({contentType.Reason})", suggestion, sample);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or IOException)
         {
@@ -170,6 +175,15 @@ public sealed class CrawlerService
         return history;
     }
 
+    /// <summary>The administrator's choice wins; Automatic looks at the directory structure (never at category names).</summary>
+    private async Task<ContentTypeDetection> ResolveContentTypeAsync(Source source, IReadOnlyList<DirEntry> rootEntries, FolderFilter filter, CancellationToken ct) =>
+        source.ContentType switch
+        {
+            SourceContentType.Movies => new ContentTypeDetection(CatalogType.Movie, "set to Movies by an administrator"),
+            SourceContentType.Series => new ContentTypeDetection(CatalogType.Series, "set to Series by an administrator"),
+            _ => await _detector.DetectAsync(rootEntries, filter, ct)
+        };
+
     // ================================================================== scan driver
 
     private async Task<int> RunScanAsync(Source source, ScanHistory history, bool deep, ScanProgress progress, CancellationToken ct)
@@ -179,6 +193,12 @@ public sealed class CrawlerService
 
         progress.Phase = "Reading source root";
         var rootEntries = await _listing.ListAsync(root.AbsoluteUri, ct); // throws when the server is down: existing data stays untouched
+
+        // Series sources have their own crawl (Series → Seasons → Episodes); the movie crawl below is unchanged.
+        var content = await ResolveContentTypeAsync(source, rootEntries, filter, ct);
+        _log.LogInformation("Source {Source}: content type {Type} ({Reason})", source.Name, content.Type, content.Reason);
+        if (content.Type == CatalogType.Series)
+            return await _series.RunAsync(source, history, deep || source.ScanStrategy == ScanStrategy.ManualFull, progress, root, rootEntries, filter, ct);
 
         var strategy = source.ScanStrategy;
         if (strategy == ScanStrategy.Auto)
@@ -208,7 +228,7 @@ public sealed class CrawlerService
         Dictionary<string, (int Id, DateTime? Modified)> known;
         await using (var db = await _factory.CreateDbContextAsync(ct))
         {
-            known = (await db.Movies.AsNoTracking().Where(m => m.SourceId == source.Id)
+            known = (await db.Movies.AsNoTracking().Where(m => m.SourceId == source.Id && m.ContentType == CatalogType.Movie)
                     .Select(m => new { m.SourceFolderUrl, m.Id, m.FolderLastModified }).ToListAsync(ct))
                 .GroupBy(m => m.SourceFolderUrl, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => (g.First().Id, g.First().FolderLastModified), StringComparer.Ordinal);
@@ -676,7 +696,7 @@ public sealed class CrawlerService
         var cutoff = DateTime.UtcNow.AddHours(-24);
         await using var db = await _factory.CreateDbContextAsync(ct);
         var pending = await db.Movies
-            .Where(m => m.SourceId == sourceId && m.MatchStatus == MatchStatus.Unmatched && (m.MetadataFetchedAt == null || m.MetadataFetchedAt < cutoff)
+            .Where(m => m.SourceId == sourceId && m.ContentType == CatalogType.Movie && m.MatchStatus == MatchStatus.Unmatched && (m.MetadataFetchedAt == null || m.MetadataFetchedAt < cutoff)
                         && m.MatchNote != null && m.MatchNote.StartsWith("TMDB"))
             .OrderBy(m => m.UpdatedAt).Take(25).ToListAsync(ct);
 
@@ -689,19 +709,5 @@ public sealed class CrawlerService
             movie.MetadataFetchedAt = DateTime.UtcNow;
         }
         if (pending.Count > 0) await db.SaveChangesAsync(ct);
-    }
-
-    /// <summary>Stops hammering TMDB for the rest of a scan after repeated failures (bad key, outage).</summary>
-    private sealed class TmdbHealth
-    {
-        private int _failures;
-        private readonly bool _configured;
-        public TmdbHealth(bool configured) => _configured = configured;
-        public bool Usable => _configured && Volatile.Read(ref _failures) < 3;
-        public void Observe(MatchOutcome o)
-        {
-            if (o.Status == MatchStatus.Unmatched && o.Note.StartsWith("TMDB lookup failed", StringComparison.Ordinal))
-                Interlocked.Increment(ref _failures);
-        }
     }
 }

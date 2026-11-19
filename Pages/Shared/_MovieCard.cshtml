@@ -16,11 +16,15 @@
         }))
         : Microsoft.AspNetCore.Html.HtmlString.Empty;
 }
-<a class="card" href="/movie/@Model.Id" title="@Model.Title" @featureAttrs>
+<a class="card" href="@(Model.IsSeries ? "/series/" + Model.Id : "/movie/" + Model.Id)" title="@Model.Title" @featureAttrs>
     <div class="card-poster">
         <img src="@(Model.PosterUrl ?? "/images/poster-fallback.svg")" alt="@Model.Title poster" loading="lazy" width="300" height="450"
              onerror="this.onerror=null;this.src='/images/poster-fallback.svg'" />
-        @if (!string.IsNullOrEmpty(Model.Quality))
+        @if (Model.IsSeries)
+        {
+            <span class="badge-quality">SERIES</span>
+        }
+        else if (!string.IsNullOrEmpty(Model.Quality))
         {
             <span class="badge-quality">@Model.Quality</span>
         }

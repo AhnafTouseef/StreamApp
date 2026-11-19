@@ -1,0 +1,91 @@
+@page "/series/{id:int}"
+@model StreamApp.Pages.TvSeries.DetailsModel
+@using System.Globalization
+@{
+    var m = Model.Entry;
+    var info = m.Series;
+    var first = Model.View.First;
+    var episodeCount = Model.View.Seasons.Sum(s => s.Episodes.Count);
+    var seasonCount = Model.View.Seasons.Count(s => s.Number > 0);
+    ViewData["Title"] = m.Title + (m.ReleaseYear.HasValue ? $" ({m.ReleaseYear})" : "");
+    string Fmt(double v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+}
+<section class="detail-hero">
+    <div class="detail-bg" style="@(m.BackdropUrl != null ? $"background-image:url('{m.BackdropUrl}')" : "")"></div>
+    <div class="detail-grid">
+        <div class="detail-poster"><img src="@(m.PosterUrl ?? "/images/poster-fallback.svg")" alt="@m.Title poster" onerror="this.onerror=null;this.src='/images/poster-fallback.svg'" /></div>
+        <div class="detail-info">
+            <h1>@m.Title</h1>
+            @if (!string.IsNullOrEmpty(m.OriginalTitle) && !string.Equals(m.OriginalTitle, m.Title, StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="original-title">Original title: @m.OriginalTitle</div>
+            }
+            <div class="meta-line">
+                @if (m.ReleaseYear.HasValue) { <span>@m.ReleaseYear</span> }
+                @if (seasonCount > 0) { <span>@seasonCount season@(seasonCount == 1 ? "" : "s")</span> }
+                <span>@episodeCount episode@(episodeCount == 1 ? "" : "s")</span>
+                @if (m.Runtime.HasValue) { <span>~@(m.Runtime)m per episode</span> }
+                @if (m.TmdbRating.HasValue) { <span class="rating" title="TMDB rating">★ @Fmt(m.TmdbRating.Value) <small class="muted">TMDB</small></span> }
+                @if (m.ImdbRating.HasValue) { <span class="rating" title="IMDb rating">★ @Fmt(m.ImdbRating.Value) <small class="muted">IMDb</small></span> }
+                <span class="chip">SERIES</span>
+                @foreach (var g in m.MovieGenres.Select(x => x.Genre).OrderBy(x => x.Name)) { <a class="chip" href="/genres/@g.Slug">@g.Name</a> }
+            </div>
+            @if (!string.IsNullOrEmpty(m.Tagline)) { <div class="tagline">@m.Tagline</div> }
+            <p>@(m.Overview ?? "No overview is available for this series.")</p>
+
+            <div class="hero-actions">
+                @if (first != null) { <a class="btn btn-primary" href="/watch/@m.Id?episode=@first.Id">▶ Play S@(first.SeasonNumber.ToString("00"))E@(first.Number.ToString("00"))</a> }
+                <a class="btn btn-ghost" href="/movies/@m.Category.Slug">More in @m.Category.Name</a>
+            </div>
+
+            <dl class="facts">
+                @if (!string.IsNullOrEmpty(m.Director)) { <dt>Created by</dt><dd>@m.Director</dd> }
+                @if (!string.IsNullOrEmpty(info?.Networks)) { <dt>Network</dt><dd>@info!.Networks</dd> }
+                @if (!string.IsNullOrEmpty(m.ProductionInfo) && string.IsNullOrEmpty(info?.Networks)) { <dt>Production</dt><dd>@m.ProductionInfo</dd> }
+                @if (!string.IsNullOrEmpty(info?.Status)) { <dt>Status</dt><dd>@info!.Status</dd> }
+                @if (m.ReleaseDate.HasValue) { <dt>First aired</dt><dd>@m.ReleaseDate.Value.ToString("d MMMM yyyy", CultureInfo.InvariantCulture)</dd> }
+                @if (info?.LastAirDate != null) { <dt>Last aired</dt><dd>@info.LastAirDate.Value.ToString("d MMMM yyyy", CultureInfo.InvariantCulture)</dd> }
+                <dt>Category</dt><dd>@m.Category.Name</dd>
+                @if (m.MatchStatus != MatchStatus.Matched && m.MatchStatus != MatchStatus.Manual) { <dt class="tech-only">Metadata</dt><dd class="muted tech-only">Not matched to TMDB yet</dd> }
+            </dl>
+        </div>
+    </div>
+</section>
+
+<div class="detail-section">
+    <h2 class="section-title">Episodes</h2>
+    @if (Model.View.Seasons.Count == 0)
+    {
+        <div class="panel"><p class="muted">No episodes are recorded for this series yet.</p></div>
+    }
+    else
+    {
+        <partial name="_SeriesPicker" model="@(new SeriesPickerModel(Model.View, null))" />
+    }
+
+    @if (Model.Cast.Count > 0)
+    {
+        <h2 class="section-title">Cast</h2>
+        <div class="cast">
+            @foreach (var c in Model.Cast)
+            {
+                <div class="cast-item">
+                    @if (!string.IsNullOrEmpty(c.Photo)) { <img src="@c.Photo" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /> } else { <div class="ph">👤</div> }
+                    <strong>@c.Name</strong>
+                    @if (!string.IsNullOrEmpty(c.Character)) { <span>@c.Character</span> }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (Model.Similar.Count > 0)
+{
+    <div style="margin-top:34px">
+        <partial name="_MovieRow" model="@(new MovieRowModel { Id = "similar", Title = "Similar titles", Items = Model.Similar })" />
+    </div>
+}
+
+@section Scripts {
+    <script src="~/js/series.js" asp-append-version="true"></script>
+}

@@ -113,6 +113,8 @@ public sealed class SeedSource
     public string CategorySlug { get; set; } = "";
     public string RootUrl { get; set; } = "";
     public string Strategy { get; set; } = "Auto";
+    /// <summary>Automatic (default), Movies or Series.</summary>
+    public string ContentType { get; set; } = "Automatic";
     public int? CooldownHours { get; set; }
     public string? IncludedFolders { get; set; }
     public string? ExcludedFolders { get; set; }

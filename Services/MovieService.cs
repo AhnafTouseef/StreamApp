@@ -34,6 +34,7 @@ public sealed class MovieService
         Overview = m.Overview,
         CategoryName = m.Category.Name,
         Quality = m.Quality,
+        IsSeries = m.ContentType == CatalogType.Series,
         Genres = m.MovieGenres.Select(g => g.Genre.Name).ToList() // capped to 3 by MovieCardDto.Genres; Take() here would need APPLY (unsupported on SQLite)
     };
 
@@ -337,9 +338,10 @@ public sealed class MovieService
         if (genreIds.Count == 0) return new List<MovieCardDto>();
         var movieId = movie.Id;
         var tmdbId = movie.TmdbId;
+        var type = movie.ContentType;
 
         return await Visible()
-            .Where(m => m.Id != movieId && (tmdbId == null || m.TmdbId != tmdbId))
+            .Where(m => m.Id != movieId && (tmdbId == null || m.ContentType != type || m.TmdbId != tmdbId))   // TMDB movie and TV ids are separate id spaces
             .Where(m => m.MovieGenres.Any(mg => genreIds.Contains(mg.GenreId)))
             .OrderByDescending(m => m.MovieGenres.Count(mg => genreIds.Contains(mg.GenreId)))
             .ThenByDescending(m => m.TmdbRating)
@@ -351,7 +353,8 @@ public sealed class MovieService
     {
         if (movie.TmdbId is not { } tmdbId) return new List<MovieCopyDto>();
         var movieId = movie.Id;
-        return await Visible().Where(m => m.TmdbId == tmdbId && m.Id != movieId)
+        var type = movie.ContentType;
+        return await Visible().Where(m => m.TmdbId == tmdbId && m.Id != movieId && m.ContentType == type)
             .OrderBy(m => m.Id)
             .Select(m => new MovieCopyDto
             {
@@ -359,4 +362,52 @@ public sealed class MovieService
                 SourceName = m.Source.Name, CategoryName = m.Category.Name
             }).ToListAsync(ct);
     }
+
+    // ------------------------------------------------------------------ series
+
+    /// <summary>Whether an entry is a movie or a series (null when it does not exist).</summary>
+    public async Task<CatalogType?> GetContentTypeAsync(int id, CancellationToken ct = default)
+    {
+        var t = await _db.Movies.AsNoTracking().Where(m => m.Id == id).Select(m => (CatalogType?)m.ContentType).FirstOrDefaultAsync(ct);
+        return t;
+    }
+
+    /// <summary>The series entry (category, source, genres) with all seasons and episodes. Episode rows carry only a file count.</summary>
+    public async Task<SeriesView?> GetSeriesViewAsync(int id, CancellationToken ct = default)
+    {
+        var entry = await _db.Movies.AsNoTracking()
+            .Include(m => m.Category).Include(m => m.Source)
+            .Include(m => m.MovieGenres).ThenInclude(mg => mg.Genre)
+            .Include(m => m.Series)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(m => m.Id == id && m.ContentType == CatalogType.Series, ct);
+        if (entry == null) return null;
+
+        var seasons = await _db.Seasons.AsNoTracking().Where(s => s.SeriesId == id).OrderBy(s => s.Number)
+            .Select(s => new SeasonDto { Id = s.Id, Number = s.Number, Name = s.Name, Overview = s.Overview, PosterUrl = s.PosterUrl, AirDate = s.AirDate }).ToListAsync(ct);
+        var episodes = await _db.Episodes.AsNoTracking().Where(e => e.Season.SeriesId == id)
+            .Select(e => new EpisodeDto
+            {
+                Id = e.Id, SeasonNumber = e.Season.Number, Number = e.Number, EndNumber = e.EndNumber, Title = e.Title, Overview = e.Overview,
+                AirDate = e.AirDate, Runtime = e.Runtime, StillUrl = e.StillUrl, FileCount = e.MediaFiles.Count
+            }).ToListAsync(ct);
+        foreach (var s in seasons) s.Episodes = episodes.Where(e => e.SeasonNumber == s.Number).OrderBy(e => e.Number).ToList();
+
+        // Specials last, so "Season 1" is what a viewer sees first.
+        var ordered = seasons.Where(s => s.Number > 0).Concat(seasons.Where(s => s.Number == 0)).ToList();
+        return new SeriesView { Entry = entry, Seasons = ordered };
+    }
+
+    /// <summary>The playable files (with tracks) and subtitles of one episode of a series.</summary>
+    public Task<Episode?> GetEpisodeForPlaybackAsync(int seriesId, int episodeId, CancellationToken ct = default) =>
+        _db.Episodes.AsNoTracking()
+            .Include(e => e.MediaFiles).ThenInclude(f => f.Streams)
+            .Include(e => e.Subtitles)
+            .Include(e => e.Season)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(e => e.Id == episodeId && e.Season.SeriesId == seriesId, ct);
+
+    /// <summary>The episode a media file belongs to (so a ?file= link into a series resolves its episode).</summary>
+    public Task<int?> GetEpisodeIdOfFileAsync(int fileId, CancellationToken ct = default) =>
+        _db.MediaFiles.AsNoTracking().Where(f => f.Id == fileId).Select(f => f.EpisodeId).FirstOrDefaultAsync(ct);
 }

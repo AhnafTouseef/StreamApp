@@ -647,3 +647,21 @@ button.set-row:hover { background: rgba(255,255,255,.08); }
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
   .settings, .tuner { left: auto; top: 0; bottom: 0; right: 0; width: min(380px, 62vw); max-height: none; border-width: 0 0 0 1px; border-radius: 0; padding-bottom: 0; }
 }
+
+/* ---------- TV series: season / episode picker (outside the player) ---------- */
+.series-picker { margin: 14px 0 6px; }
+.season-tabs { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; padding: 2px 2px 10px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scroll-snap-type: x proximity; }
+.season-btn { flex: none; scroll-snap-align: start; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-2); color: var(--muted); font-weight: 600; font-size: .9rem; cursor: pointer; }
+.season-btn:hover { color: var(--text); }
+.season-btn.is-active { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.ep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-top: 4px; }
+.ep-grid[hidden] { display: none; }
+.ep-btn { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-2); color: var(--muted); font-size: .86rem; }
+.ep-btn b { flex: none; min-width: 2.1em; text-align: center; padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,.06); color: var(--text); font-size: .82rem; }
+.ep-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-btn:hover { border-color: var(--accent-2); color: var(--text); }
+.ep-btn.is-active { border-color: var(--accent); color: var(--text); background: rgba(242,169,59,.12); }
+.ep-btn.is-active b { background: var(--accent); color: var(--on-accent); }
+.ep-now { font-size: 1.05rem; }
+.ep-overview { margin: 2px 0 0; max-width: 70ch; }
+.autonext { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer; }

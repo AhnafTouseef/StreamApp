@@ -19,6 +19,7 @@ public class DetailsModel : PageModel
     public async Task<IActionResult> OnGetAsync(int id)
     {
         var ct = HttpContext.RequestAborted;
+        if (await _movies.GetContentTypeAsync(id, ct) == CatalogType.Series) return RedirectToPage("/TvSeries/Details", new { id });   // a series has its own details page
         var movie = await _movies.GetMovieAsync(id, ct);
         if (movie == null) return NotFound();
         if (!User.Identity!.IsAuthenticated && !await _movies.IsVisibleAsync(id, ct)) return NotFound(); // hidden category (admins can still preview)

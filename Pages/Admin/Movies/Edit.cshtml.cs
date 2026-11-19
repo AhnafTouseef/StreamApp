@@ -105,7 +105,7 @@ public class EditModel : AdminPageModel
         try
         {
             int? year = int.TryParse(searchYear, out var y) ? y : null;
-            Candidates = await _metadata.SearchForAdminAsync(searchTitle ?? "", year, HttpContext.RequestAborted);
+            Candidates = await _metadata.SearchForAdminAsync(searchTitle ?? "", year, HttpContext.RequestAborted, Movie.ContentType);
         }
         catch (TmdbException ex)
         {

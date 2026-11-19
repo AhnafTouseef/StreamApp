@@ -11,6 +11,8 @@ public sealed class MovieCardDto
     public string? Overview { get; set; }
     public string? CategoryName { get; set; }
     public string? Quality { get; set; }
+    /// <summary>True for a TV series entry (from the database content type); the card then shows SERIES instead of a resolution.</summary>
+    public bool IsSeries { get; set; }
     private List<string> _genres = new();
     /// <summary>
     /// At most three genre names for the card chips. The cap is applied here, after the rows are materialised:
@@ -115,3 +117,55 @@ public sealed class BrowseViewModel
     public string EmptyTitle { get; set; } = "No movies found";
     public string EmptyMessage { get; set; } = "Try changing the filters.";
 }
+
+public sealed class EpisodeDto
+{
+    public int Id { get; set; }
+    public int SeasonNumber { get; set; }
+    public int Number { get; set; }
+    public int? EndNumber { get; set; }
+    public string? Title { get; set; }
+    public string? Overview { get; set; }
+    public DateTime? AirDate { get; set; }
+    public int? Runtime { get; set; }
+    public string? StillUrl { get; set; }
+    public int FileCount { get; set; }
+    public string NumberLabel => EndNumber.HasValue ? $"{Number}–{EndNumber}" : Number.ToString();
+}
+
+public sealed class SeasonDto
+{
+    public int Id { get; set; }
+    public int Number { get; set; }
+    public string? Name { get; set; }
+    public string? Overview { get; set; }
+    public string? PosterUrl { get; set; }
+    public DateTime? AirDate { get; set; }
+    public List<EpisodeDto> Episodes { get; set; } = new();
+    public string Label => Number == 0 ? "Specials" : "Season " + Number;
+}
+
+/// <summary>A series entry with its seasons and episodes (no media files: those are loaded for the one episode being played).</summary>
+public sealed class SeriesView
+{
+    public Movie Entry { get; set; } = null!;
+    public List<SeasonDto> Seasons { get; set; } = new();
+    public EpisodeDto? First => Seasons.Where(s => s.Number > 0).Concat(Seasons.Where(s => s.Number == 0))
+        .SelectMany(s => s.Episodes.OrderBy(e => e.Number)).FirstOrDefault(e => e.FileCount > 0);
+    public EpisodeDto? Find(int episodeId) => Seasons.SelectMany(s => s.Episodes).FirstOrDefault(e => e.Id == episodeId);
+    public EpisodeDto? Next(EpisodeDto current)
+    {
+        var all = Seasons.Where(s => s.Number > 0).Concat(Seasons.Where(s => s.Number == 0)).SelectMany(s => s.Episodes.OrderBy(e => e.Number)).Where(e => e.FileCount > 0).ToList();
+        var i = all.FindIndex(e => e.Id == current.Id);
+        return i >= 0 && i + 1 < all.Count ? all[i + 1] : null;
+    }
+    public EpisodeDto? Previous(EpisodeDto current)
+    {
+        var all = Seasons.Where(s => s.Number > 0).Concat(Seasons.Where(s => s.Number == 0)).SelectMany(s => s.Episodes.OrderBy(e => e.Number)).Where(e => e.FileCount > 0).ToList();
+        var i = all.FindIndex(e => e.Id == current.Id);
+        return i > 0 ? all[i - 1] : null;
+    }
+}
+
+/// <summary>What the season/episode picker (_SeriesPicker) shows: the series and, on the watch page, the episode being played.</summary>
+public sealed record SeriesPickerModel(SeriesView View, int? CurrentEpisodeId);
