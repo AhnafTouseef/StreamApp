@@ -90,8 +90,14 @@ public sealed partial class MetadataService
     }
 
     /// <summary>Searches TMDB for the admin "correct the match" screen.</summary>
-    public async Task<List<TmdbSearchItem>> SearchForAdminAsync(string title, int? year, CancellationToken ct, CatalogType type = CatalogType.Movie) =>
-        type == CatalogType.Series ? await _tmdb.SearchTvAsync(title, year, ct) : await _tmdb.SearchAsync(title, year, ct);
+    public async Task<List<TmdbSearchItem>> SearchForAdminAsync(string title, int? year, CancellationToken ct, CatalogType type = CatalogType.Movie)
+    {
+        if (type != CatalogType.Series) return await _tmdb.SearchAsync(title, year, ct);
+        // series: the year is a clue, so the unfiltered hits are always included next to the year-filtered ones
+        var list = year.HasValue ? await _tmdb.SearchTvAsync(title, year, ct) : new List<TmdbSearchItem>();
+        foreach (var r in await _tmdb.SearchTvAsync(title, null, ct)) if (list.All(x => x.Id != r.Id)) list.Add(r);
+        return list;
+    }
 
     // ------------------------------------------------------------------ applying
 

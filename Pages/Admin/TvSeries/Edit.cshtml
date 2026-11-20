@@ -1,0 +1,7 @@
+@page "/admin/series/edit/{id:int}"
+@model StreamApp.Pages.Admin.TvSeries.EditModel
+@{
+    ViewData["Title"] = "Edit " + Model.Movie.Title; ViewData["Active"] = "series";
+    Layout = Model.Embed ? "_EmbedLayout" : "_AdminLayout";
+}
+<partial name="_EditEntry" model="Model" />

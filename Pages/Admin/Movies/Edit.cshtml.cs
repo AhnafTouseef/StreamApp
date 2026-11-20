@@ -37,6 +37,11 @@ public class EditModel : AdminPageModel
     /// <summary>True when the page is shown inside the popup on the Movies list (an iframe request, or ?embed=1).</summary>
     public bool Embed => string.Equals(Request.Headers["Sec-Fetch-Dest"], "iframe", StringComparison.OrdinalIgnoreCase) || Request.Query.ContainsKey("embed");
 
+    /// <summary>Which admin section this page belongs to; an entry of the other type is redirected to its own section.</summary>
+    protected virtual CatalogType Section => CatalogType.Movie;
+    public bool IsSeries => Movie.ContentType == CatalogType.Series;
+    public string ListUrl => IsSeries ? "/admin/series" : "/admin/movies";
+
     public Movie Movie { get; private set; } = null!;
     public List<Category> Categories { get; private set; } = new();
     [BindProperty] public MovieInput Input { get; set; } = new();
@@ -52,14 +57,25 @@ public class EditModel : AdminPageModel
         if (m == null) return false;
         Movie = m;
         Categories = await _db.Categories.AsNoTracking().OrderBy(c => c.Name).ToListAsync(HttpContext.RequestAborted);
-        SearchTitle ??= FolderNameParser.Parse(m.FolderName).Title;
-        SearchYear ??= (FolderNameParser.Parse(m.FolderName).Year ?? m.ReleaseYear)?.ToString();
+        if (m.ContentType == CatalogType.Series)
+        {
+            var n = SeriesNameParser.Parse(m.FolderName);
+            SearchTitle ??= n.Title;
+            SearchYear ??= (n.Year ?? m.ReleaseYear)?.ToString();
+        }
+        else
+        {
+            SearchTitle ??= FolderNameParser.Parse(m.FolderName).Title;
+            SearchYear ??= (FolderNameParser.Parse(m.FolderName).Year ?? m.ReleaseYear)?.ToString();
+        }
         return true;
     }
 
     public async Task<IActionResult> OnGetAsync(int id)
     {
         if (!await LoadAsync(id)) return NotFound();
+        if (Movie.ContentType != Section)   // a movie asked for in the Series section (or the reverse) is shown in its own section
+            return Redirect(ListUrl + "/edit/" + id + (Request.QueryString.HasValue ? Request.QueryString.Value : ""));
         Input = new MovieInput
         {
             Title = Movie.Title, OriginalTitle = Movie.OriginalTitle, ReleaseYear = Movie.ReleaseYear, Runtime = Movie.Runtime, CategoryId = Movie.CategoryId,
@@ -148,7 +164,8 @@ public class EditModel : AdminPageModel
         if (!await LoadAsync(id)) return NotFound();
         await _db.Entry(Movie).Collection(m => m.MovieGenres).LoadAsync();
         Movie.MovieGenres.Clear();
-        MetadataService.ClearMatch(Movie, FolderNameParser.Parse(Movie.FolderName));
+        if (Movie.ContentType == CatalogType.Series) { var n = SeriesNameParser.Parse(Movie.FolderName); MetadataService.ClearMatch(Movie, new ParsedName(n.Title, n.Year, null, n.Tags)); }
+        else MetadataService.ClearMatch(Movie, FolderNameParser.Parse(Movie.FolderName));
         await _db.SaveChangesAsync(HttpContext.RequestAborted);
         Ok("TMDB match removed. Poster, overview and other TMDB fields were kept; edit them below if needed.");
         return RedirectToPage(new { id });
@@ -180,6 +197,7 @@ public class EditModel : AdminPageModel
     public async Task<IActionResult> OnPostDeleteAsync(int id)
     {
         var m = await _db.Movies.FirstOrDefaultAsync(x => x.Id == id, HttpContext.RequestAborted);
+        var listPage = m?.ContentType == CatalogType.Series ? "/Admin/TvSeries/Index" : "/Admin/Movies/Index";
         if (m != null)
         {
             _db.Movies.Remove(m); // cascades to files, streams, subtitles and genre links; the ISP server is never contacted
@@ -189,6 +207,6 @@ public class EditModel : AdminPageModel
         // Inside the popup there is no list to go back to: tell the list page to close the popup and refresh itself.
         if (Embed)
             return Content("<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:system-ui;background:#0a0c10;color:#eceef3;padding:24px\">Removed.<script>parent.postMessage({ streamapp: 'edit-done' }, location.origin);</script>", "text/html");
-        return RedirectToPage("/Admin/Movies/Index");
+        return RedirectToPage(listPage);
     }
 }

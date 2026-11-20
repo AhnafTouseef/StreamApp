@@ -35,8 +35,8 @@ public class SourceInput
     public bool IsEnabled { get; set; } = true;
 }
 
-public sealed record LibSource(Source Source, int MovieCount, int Misfiled);
-public sealed record LibCategory(Category Category, int Depth, bool Shown, bool HiddenByParent, int MovieCount, List<LibSource> Sources);
+public sealed record LibSource(Source Source, int MovieCount, int SeriesCount, int Misfiled);
+public sealed record LibCategory(Category Category, int Depth, bool Shown, bool HiddenByParent, int MovieCount, int SeriesCount, List<LibSource> Sources);
 
 /// <summary>Categories and the sources that feed them, managed together on one page.</summary>
 public class LibraryModel : AdminPageModel
@@ -47,11 +47,15 @@ public class LibraryModel : AdminPageModel
     private readonly SourcePolicy _policy;
     private readonly CategoryService _categories;
     private readonly CrawlerOptions _opt;
+    private readonly TmdbRescanService _rescan;
 
-    public LibraryModel(AppDbContext db, ScanCoordinator scans, CrawlerService crawler, SourcePolicy policy, CategoryService categories, IOptions<CrawlerOptions> opt)
+    public LibraryModel(AppDbContext db, ScanCoordinator scans, CrawlerService crawler, SourcePolicy policy, CategoryService categories, IOptions<CrawlerOptions> opt, TmdbRescanService rescan)
     {
-        _db = db; _scans = scans; _crawler = crawler; _policy = policy; _categories = categories; _opt = opt.Value;
+        _db = db; _scans = scans; _crawler = crawler; _policy = policy; _categories = categories; _opt = opt.Value; _rescan = rescan;
     }
+
+    public RescanSnapshot? RescanOf(int sourceId) => _rescan.Get(sourceId);
+    public bool AnyRescanRunning => Tree.Any(c => c.Sources.Any(s => _rescan.IsRunning(s.Source.Id)));
 
     // The two forms use the prefixes "Cat." and "Src.", so a post of one never validates the other.
     [BindProperty] public CategoryInput Cat { get; set; } = new();
@@ -80,8 +84,11 @@ public class LibraryModel : AdminPageModel
         var ct = HttpContext.RequestAborted;
         AllCategories = await _db.Categories.AsNoTracking().OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name).ToListAsync(ct);
         var sources = await _db.Sources.AsNoTracking().OrderBy(s => s.Name).ToListAsync(ct);
-        var perSource = await _db.Movies.GroupBy(m => m.SourceId).Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
-        var perCategory = await _db.Movies.GroupBy(m => m.CategoryId).Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
+        // movies and series are counted separately everywhere
+        var perSource = await _db.Movies.Where(m => m.ContentType == CatalogType.Movie).GroupBy(m => m.SourceId).Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
+        var perSourceSeries = await _db.Movies.Where(m => m.ContentType == CatalogType.Series).GroupBy(m => m.SourceId).Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
+        var perCategory = await _db.Movies.Where(m => m.ContentType == CatalogType.Movie).GroupBy(m => m.CategoryId).Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
+        var perCategorySeries = await _db.Movies.Where(m => m.ContentType == CatalogType.Series).GroupBy(m => m.CategoryId).Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
         var catOf = sources.ToDictionary(x => x.Id, x => x.CategoryId);
         var pairs = await _db.Movies.GroupBy(m => new { m.SourceId, m.CategoryId }).Select(g => new { g.Key.SourceId, g.Key.CategoryId, N = g.Count() }).ToListAsync(ct);
         var misfiled = pairs.Where(x => catOf.TryGetValue(x.SourceId, out var c) && c != x.CategoryId)
@@ -99,8 +106,8 @@ public class LibraryModel : AdminPageModel
             {
                 if (!visited.Add(c.Id)) continue;
                 var shown = shownIds.Contains(c.Id);
-                Tree.Add(new LibCategory(c, depth, shown, !shown && c.IsActive, perCategory.GetValueOrDefault(c.Id),
-                    (bySource.GetValueOrDefault(c.Id) ?? new List<Source>()).Select(s => new LibSource(s, perSource.GetValueOrDefault(s.Id), misfiled.GetValueOrDefault(s.Id))).ToList()));
+                Tree.Add(new LibCategory(c, depth, shown, !shown && c.IsActive, perCategory.GetValueOrDefault(c.Id), perCategorySeries.GetValueOrDefault(c.Id),
+                    (bySource.GetValueOrDefault(c.Id) ?? new List<Source>()).Select(s => new LibSource(s, perSource.GetValueOrDefault(s.Id), perSourceSeries.GetValueOrDefault(s.Id), misfiled.GetValueOrDefault(s.Id))).ToList()));
                 Walk(c.Id, depth + 1);
             }
         }
@@ -271,6 +278,16 @@ public class LibraryModel : AdminPageModel
         if (!s.IsEnabled) Fail("Enable crawling for this source before scanning it.");
         else if (_scans.TryStart(id, deep, "manual")) Ok($"{(deep ? "Deep scan" : "Scan")} of '{s.Name}' started.");
         else Fail($"A scan of '{s.Name}' is already running or queued.");
+        return RedirectToPage();
+    }
+
+    /// <summary>Re-evaluates the TMDB associations of every movie and series of the source (no crawling, no re-probing; manual corrections are kept).</summary>
+    public async Task<IActionResult> OnPostRescanTmdbAsync(int id, bool recheck = false)
+    {
+        var s = await _db.Sources.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, HttpContext.RequestAborted);
+        if (s == null) return RedirectToPage();
+        var (started, message) = _rescan.TryStart(id, s.Name, recheck);
+        if (started) Ok(message); else Fail(message);
         return RedirectToPage();
     }
 

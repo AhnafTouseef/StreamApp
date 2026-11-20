@@ -126,6 +126,7 @@ body.has-announce { --ann-h: 36px; }
 .card-actions { margin-top: 6px; }
 .card-go { display: inline-block; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: .78rem; }
 .badge-quality { position: absolute; top: 8px; left: 8px; padding: 2px 7px; border-radius: 5px; background: rgba(var(--bg-rgb),.8); font-size: .7rem; font-weight: 700; letter-spacing: .04em; }
+.badge-quality.badge-series { background: #1e6fe0; color: #fff; }   /* series stand out from the resolution badges of movies */
 .card-meta { padding: 8px 2px 0; display: flex; flex-direction: column; }
 .card-title { display: block; min-width: 0; max-width: 100%; font-size: .9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-sub { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; color: var(--muted); }
@@ -665,3 +666,13 @@ button.set-row:hover { background: rgba(255,255,255,.08); }
 .ep-now { font-size: 1.05rem; }
 .ep-overview { margin: 2px 0 0; max-width: 70ch; }
 .autonext { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer; }
+
+/* series: Available sources */
+.sources-panel > summary.sources-summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; font-weight: 600; list-style: none; }
+.sources-panel > summary.sources-summary::-webkit-details-marker { display: none; }
+.sources-panel[open] > summary.sources-summary { margin-bottom: 12px; }
+.sources-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.source-group + .source-group { margin-top: 18px; }
+.source-group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.source-group-head h3 { margin: 0; font-size: 1rem; }
+.source-group-head h3 small { font-weight: 400; margin-left: 6px; }

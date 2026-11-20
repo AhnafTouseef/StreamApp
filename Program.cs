@@ -78,6 +78,7 @@ services.AddHttpClient(FfmpegInstaller.HttpClientName, c => c.Timeout = TimeSpan
 services.AddSingleton<GenreResolver>();
 services.AddSingleton<MetadataService>();
 services.AddSingleton<PosterBackfill>();
+services.AddSingleton<TmdbRescanService>();
 services.AddSingleton<CrawlerService>();
 services.AddSingleton<ScanCoordinator>();
 services.AddSingleton<CategoryService>();

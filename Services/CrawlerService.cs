@@ -417,6 +417,51 @@ public sealed class CrawlerService
     private static string LastSegment(Uri u) =>
         Uri.UnescapeDataString(u.AbsolutePath.TrimEnd('/').Split('/').Last());
 
+    // ================================================================== manual registration
+
+    /// <summary>
+    /// Registers one movie by hand - a movie folder, or a single video file - without crawling its source. The same folder reading, ffprobe inspection
+    /// and TMDB matching as the crawler's are used; <paramref name="reg"/> can force a TMDB id or supply the search title / year.
+    /// </summary>
+    public async Task<(int? Id, bool Created, string Message)> RegisterMovieAsync(Source source, string url, RegisterOptions reg, CancellationToken ct)
+    {
+        var isFile = _kinds.IsVideo(Uri.UnescapeDataString(new Uri(url).AbsolutePath));
+        MovieUnit unit;
+        if (isFile)
+        {
+            var fileUri = new Uri(url);
+            unit = new MovieUnit(Uri.UnescapeDataString(fileUri.AbsolutePath.Split('/').Last()), fileUri.AbsoluteUri, false, null, null);
+        }
+        else
+        {
+            var dirUri = DirectoryListingClient.NormalizeDirUri(url);
+            unit = new MovieUnit(LastSegment(dirUri), dirUri.AbsoluteUri, true, null, null);
+        }
+
+        await using (var db = await _factory.CreateDbContextAsync(ct))
+        {
+            var existing = await db.Movies.AsNoTracking().Where(m => m.SourceId == source.Id && m.SourceFolderUrl == unit.Url).Select(m => (int?)m.Id).FirstOrDefaultAsync(ct);
+            if (existing != null) return (existing, false, "This folder is already registered.");
+        }
+
+        try
+        {
+            var added = await AddMovieAsync(source, unit, new TmdbHealth(_metadata.IsConfigured), ct, reg);
+            if (!added) return (null, false, isFile ? "The file could not be registered." : "No video files were found in this folder.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return (null, false, "The folder could not be read: " + ex.Message);
+        }
+
+        await using var db2 = await _factory.CreateDbContextAsync(ct);
+        var id = await db2.Movies.AsNoTracking().Where(m => m.SourceId == source.Id && m.SourceFolderUrl == unit.Url).Select(m => (int?)m.Id).FirstOrDefaultAsync(ct);
+        return (id, id != null, id != null ? "Movie registered." : "The movie could not be saved.");
+    }
+
+    public Task<(int? Id, bool Created, string Message)> RegisterSeriesAsync(Source source, string url, RegisterOptions reg, CancellationToken ct) =>
+        _series.RegisterAsync(source, url, reg, ct);
+
     // ================================================================== folder inspection
 
     private sealed class FolderContents
@@ -480,7 +525,7 @@ public sealed class CrawlerService
 
     // ================================================================== add / refresh a movie
 
-    private async Task<bool> AddMovieAsync(Source source, MovieUnit unit, TmdbHealth tmdbOk, CancellationToken ct)
+    private async Task<bool> AddMovieAsync(Source source, MovieUnit unit, TmdbHealth tmdbOk, CancellationToken ct, RegisterOptions? reg = null)
     {
         var contents = await InspectFolderAsync(unit, ct);
         if (contents.Videos.Count == 0)
@@ -491,6 +536,8 @@ public sealed class CrawlerService
 
         var rawName = unit.IsFolder ? unit.Name : Path.GetFileNameWithoutExtension(unit.Name);
         var parsed = FolderNameParser.Parse(rawName);
+        if (reg?.Title is { Length: > 0 } typedTitle) parsed = parsed with { Title = typedTitle.Trim() };
+        if (reg?.Year != null) parsed = parsed with { Year = reg.Year };
         var quality = parsed.Quality ?? contents.Videos.Select(v => FolderNameParser.Parse(Path.GetFileNameWithoutExtension(v.Name)).Quality).FirstOrDefault(q => q != null);
 
         var movie = new Movie
@@ -540,7 +587,12 @@ public sealed class CrawlerService
         }
         movie.Runtime ??= movie.MediaFiles.Where(f => f.Duration > 0).Select(f => (int?)Math.Round(f.Duration!.Value / 60)).FirstOrDefault();
 
-        if (tmdbOk.Usable)
+        if (reg?.TmdbId is { } forcedId)
+        {
+            try { await _metadata.ApplyTmdbIdAsync(db, movie, forcedId, MatchStatus.Manual, ct); }
+            catch (TmdbException ex) { movie.MatchStatus = MatchStatus.Unmatched; movie.MatchNote = "TMDB lookup failed: " + ex.Message; }
+        }
+        else if (tmdbOk.Usable)
         {
             var outcome = await _metadata.MatchAndApplyAsync(db, movie, parsed.Title, parsed.Year, ct);
             tmdbOk.Observe(outcome);

@@ -129,18 +129,3 @@ public sealed class NaturalComparer : IComparer<string>
         return (a.Length - i).CompareTo(b.Length - j);
     }
 }
-
-/// <summary>Turns a series folder name into a title for TMDB: drops season ranges, "Complete" and similar release noise.</summary>
-public static class SeriesTitle
-{
-    private static readonly Regex TailRx = new(
-        @"[\s._\-\[\(]+(?:S\d{1,2}(?:[\s._\-]*(?:-|to)?[\s._\-]*S?\d{1,2})?|Seasons?[\s._\-]*\d{1,2}(?:[\s._\-]*(?:-|to|&)[\s._\-]*\d{1,2})?|Complete(?:[\s._\-]*Series)?|Collection)(?![A-Za-z]).*$",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    public static ParsedName Parse(string folderName)
-    {
-        var cleaned = TailRx.Replace(folderName ?? "", "");
-        if (cleaned.Trim().Length == 0) cleaned = folderName ?? "";
-        return FolderNameParser.Parse(cleaned);
-    }
-}

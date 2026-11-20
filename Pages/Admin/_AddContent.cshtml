@@ -1,0 +1,46 @@
+@model StreamApp.Pages.Admin.AddContentModel
+<p><a href="@Model.ListUrl">← All @(Model.IsSeries ? "series" : "movies")</a></p>
+<h1>@(Model.IsSeries ? "Add Series" : "Add Movie")</h1>
+<p class="muted">
+    @if (Model.IsSeries)
+    {
+        <text>Register a series the crawler missed. Give the URL of the series folder (the one that holds the season folders). Every sub-folder that contains video files becomes a season/group and keeps its own name; videos lying directly in the series folder are included too.</text>
+    }
+    else
+    {
+        <text>Register a movie the crawler missed. Give the URL of the movie folder, or of a single video file.</text>
+    }
+    The entry is read, inspected and matched on TMDB exactly like a crawled one, so it plays the same way. Nothing on the ISP server is changed.
+</p>
+
+@if (Model.Sources.Count == 0)
+{
+    <div class="notice">There is no source yet. Add one on the <a href="/admin/library">Library</a> page first.</div>
+}
+else
+{
+<form method="post" class="panel">
+    <div asp-validation-summary="ModelOnly" class="alert err"></div>
+    <div class="form-grid">
+        <div class="field"><label asp-for="Input.SourceId">Source</label>
+            <select asp-for="Input.SourceId">@foreach (var s in Model.Sources) { <option value="@s.Id" selected="@(Model.Input.SourceId == s.Id)">@s.Name</option> }</select>
+            <span asp-validation-for="Input.SourceId" class="hint"></span>
+            <span class="hint">The entry is filed in this source's category.</span></div>
+        <div class="field wide"><label asp-for="Input.Url">@(Model.IsSeries ? "Series folder URL" : "Movie folder or file URL")</label>
+            <input asp-for="Input.Url" placeholder="http://server/path/@(Model.IsSeries ? "Show Name (2024)/" : "Movie Name (2024)/") or just the path below the source root" />
+            <span asp-validation-for="Input.Url" class="hint" style="color:var(--bad, #ff6b6b)"></span>
+            <span class="hint">A full URL, or a path below the source's root. It must be inside the chosen source.</span></div>
+        <div class="field"><label asp-for="Input.TmdbId">TMDB id (optional)</label><input asp-for="Input.TmdbId" type="number" min="1" />
+            <span class="hint">Use it when you already know the exact @(Model.IsSeries ? "TV show" : "movie") on TMDB; the entry is then marked as manually matched.</span></div>
+        <div class="field"><label asp-for="Input.Title">Search title (optional)</label><input asp-for="Input.Title" />
+            <span class="hint">Replaces the title read from the folder name when searching TMDB.</span></div>
+        <div class="field"><label asp-for="Input.Year">Year (optional)</label><input asp-for="Input.Year" type="number" min="1900" max="2100" />
+            <span class="hint">@(Model.IsSeries ? "Only a clue for the TMDB search - a neighbouring year still matches." : "Helps TMDB tell same-named movies apart.")</span></div>
+    </div>
+    <p style="margin-bottom:0"><button class="btn btn-primary" type="submit">@(Model.IsSeries ? "Add Series" : "Add Movie")</button> <span class="muted">Reading the folder, inspecting files and asking TMDB can take a little while.</span></p>
+</form>
+<div class="panel">
+    <h3>Source roots</h3>
+    <ul class="muted" style="margin:0;padding-left:18px">@foreach (var s in Model.Sources) { <li><strong>@s.Name</strong> — <span class="mono">@s.RootUrl</span></li> }</ul>
+</div>
+}

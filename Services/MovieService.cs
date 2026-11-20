@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using StreamApp.Data;
+using StreamApp.Infrastructure.Crawler;
 using StreamApp.Models;
 
 namespace StreamApp.Services;
@@ -384,7 +385,7 @@ public sealed class MovieService
         if (entry == null) return null;
 
         var seasons = await _db.Seasons.AsNoTracking().Where(s => s.SeriesId == id).OrderBy(s => s.Number)
-            .Select(s => new SeasonDto { Id = s.Id, Number = s.Number, Name = s.Name, Overview = s.Overview, PosterUrl = s.PosterUrl, AirDate = s.AirDate }).ToListAsync(ct);
+            .Select(s => new SeasonDto { Id = s.Id, Number = s.Number, Name = s.Name, Overview = s.Overview, PosterUrl = s.PosterUrl, AirDate = s.AirDate, IsCustom = s.IsCustom }).ToListAsync(ct);
         var episodes = await _db.Episodes.AsNoTracking().Where(e => e.Season.SeriesId == id)
             .Select(e => new EpisodeDto
             {
@@ -396,6 +397,37 @@ public sealed class MovieService
         // Specials last, so "Season 1" is what a viewer sees first.
         var ordered = seasons.Where(s => s.Number > 0).Concat(seasons.Where(s => s.Number == 0)).ToList();
         return new SeriesView { Entry = entry, Seasons = ordered };
+    }
+
+    /// <summary>Every media file of a series grouped by season / group (specials last), for the Available Sources section.</summary>
+    public async Task<List<SourceGroupDto>> GetSeriesSourcesAsync(int seriesId, CancellationToken ct = default)
+    {
+        var rows = await _db.MediaFiles.AsNoTracking()
+            .Where(f => f.MovieId == seriesId && f.EpisodeId != null)
+            .Select(f => new
+            {
+                f.Id, f.FileName, f.FileUrl, f.Extension, f.FileSize, f.Duration, f.Resolution, f.VideoCodec, f.AudioCodec,
+                Season = f.Episode!.Season.Number, SeasonName = f.Episode.Season.Name, Custom = f.Episode.Season.IsCustom,
+                Ep = f.Episode.Number, EpEnd = f.Episode.EndNumber
+            }).ToListAsync(ct);
+
+        return rows.GroupBy(r => r.Season)
+            .OrderBy(g => g.Key == 0).ThenBy(g => g.Key)
+            .Select(g =>
+            {
+                var first = g.First();
+                return new SourceGroupDto
+                {
+                    SeasonNumber = g.Key,
+                    Label = first.Custom && !string.IsNullOrWhiteSpace(first.SeasonName) ? first.SeasonName! : g.Key == 0 ? "Specials" : "Season " + g.Key,
+                    Files = g.OrderBy(r => r.Ep).ThenBy(r => r.FileName, NaturalComparer.Instance)
+                        .Select(r => new SourceFileDto
+                        {
+                            Id = r.Id, FileName = r.FileName, FileUrl = r.FileUrl, Extension = r.Extension, FileSize = r.FileSize, Duration = r.Duration,
+                            Resolution = r.Resolution, VideoCodec = r.VideoCodec, AudioCodec = r.AudioCodec, EpisodeNumber = r.Ep, EpisodeEnd = r.EpEnd
+                        }).ToList()
+                };
+            }).ToList();
     }
 
     /// <summary>The playable files (with tracks) and subtitles of one episode of a series.</summary>

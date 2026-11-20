@@ -18,6 +18,8 @@ public sealed class TmdbSearchItem
     [JsonPropertyName("vote_count")] public int VoteCount { get; set; }
     [JsonPropertyName("vote_average")] public double VoteAverage { get; set; }
     [JsonPropertyName("poster_path")] public string? PosterPath { get; set; }
+    /// <summary>TV search hits only: lets a "(US)" / "(UK)" qualifier in a folder name tell same-named shows apart.</summary>
+    [JsonPropertyName("origin_country")] public List<string>? OriginCountry { get; set; }
 
     [JsonIgnore] public int? Year => TmdbDates.YearOf(ReleaseDate);
 }
@@ -110,12 +112,13 @@ public sealed class TmdbTvSearchItem
     [JsonPropertyName("vote_count")] public int VoteCount { get; set; }
     [JsonPropertyName("vote_average")] public double VoteAverage { get; set; }
     [JsonPropertyName("poster_path")] public string? PosterPath { get; set; }
+    [JsonPropertyName("origin_country")] public List<string>? OriginCountry { get; set; }
 
     /// <summary>Same shape as a movie hit, so the existing ranking code is reused for series.</summary>
     public TmdbSearchItem ToSearchItem() => new()
     {
         Id = Id, Title = Name, OriginalTitle = OriginalName, ReleaseDate = FirstAirDate, Overview = Overview,
-        Popularity = Popularity, VoteCount = VoteCount, VoteAverage = VoteAverage, PosterPath = PosterPath
+        Popularity = Popularity, VoteCount = VoteCount, VoteAverage = VoteAverage, PosterPath = PosterPath, OriginCountry = OriginCountry
     };
 }
 
@@ -141,6 +144,7 @@ public sealed class TmdbTvDetails
     [JsonPropertyName("networks")] public List<TmdbNamed> Networks { get; set; } = new();
     [JsonPropertyName("production_companies")] public List<TmdbNamed> ProductionCompanies { get; set; } = new();
     [JsonPropertyName("production_countries")] public List<TmdbNamed> ProductionCountries { get; set; } = new();
+    [JsonPropertyName("origin_country")] public List<string>? OriginCountry { get; set; }
     [JsonPropertyName("created_by")] public List<TmdbNamed> CreatedBy { get; set; } = new();
     [JsonPropertyName("credits")] public TmdbCredits? Credits { get; set; }
     [JsonPropertyName("external_ids")] public TmdbExternalIds? ExternalIds { get; set; }

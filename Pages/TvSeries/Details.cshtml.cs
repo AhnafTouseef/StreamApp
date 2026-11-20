@@ -15,6 +15,7 @@ public class DetailsModel : PageModel
     public Movie Entry => View.Entry;
     public List<CastMember> Cast { get; private set; } = new();
     public List<MovieCardDto> Similar { get; private set; } = new();
+    public List<SourceGroupDto> Sources { get; private set; } = new();
 
     public async Task<IActionResult> OnGetAsync(int id)
     {
@@ -31,6 +32,7 @@ public class DetailsModel : PageModel
             catch (JsonException) { Cast = new(); }
         }
         Similar = await _movies.GetSimilarAsync(Entry, 18, ct);
+        Sources = await _movies.GetSeriesSourcesAsync(id, ct);
         return Page();
     }
 }

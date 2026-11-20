@@ -9,6 +9,9 @@
     var seasonCount = Model.View.Seasons.Count(s => s.Number > 0);
     ViewData["Title"] = m.Title + (m.ReleaseYear.HasValue ? $" ({m.ReleaseYear})" : "");
     string Fmt(double v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+    string Size(long? b) => b is null ? "" : b >= 1L << 30 ? $"{b / (double)(1L << 30):0.0} GB" : $"{b / (double)(1L << 20):0} MB";
+    string Dur(double? d) => d is null ? "" : TimeSpan.FromSeconds(d.Value).ToString(d >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
+    var sourceFileCount = Model.Sources.Sum(g => g.Files.Count);
 }
 <section class="detail-hero">
     <div class="detail-bg" style="@(m.BackdropUrl != null ? $"background-image:url('{m.BackdropUrl}')" : "")"></div>
@@ -63,6 +66,47 @@
         <partial name="_SeriesPicker" model="@(new SeriesPickerModel(Model.View, null))" />
     }
 
+    @if (sourceFileCount > 0)
+    {
+        <h2 class="section-title">Available sources</h2>
+        <details class="panel sources-panel" id="series-sources">
+            <summary class="sources-summary"><span>@sourceFileCount.ToString("N0") file@(sourceFileCount == 1 ? "" : "s") in @Model.Sources.Count group@(Model.Sources.Count == 1 ? "" : "s")</span> <span class="muted">Show / hide</span></summary>
+            <div class="sources-bar">
+                <button type="button" class="btn btn-primary btn-sm" data-download-all="#series-sources">Download All (@sourceFileCount.ToString("N0"))</button>
+                <span class="muted" data-download-status role="status"></span>
+            </div>
+            @foreach (var g in Model.Sources)
+            {
+                <div class="source-group" data-source-group>
+                    <div class="source-group-head">
+                        <h3>@g.Label <small class="muted">@g.Files.Count file@(g.Files.Count == 1 ? "" : "s")</small></h3>
+                        <button type="button" class="btn btn-ghost btn-sm" data-download-group>Download group</button>
+                    </div>
+                    <ul class="source-list">
+                        @foreach (var f in g.Files)
+                        {
+                            <li>
+                                <div class="grow">
+                                    <span class="name">@f.FileName</span>
+                                    <span class="specs">
+                                        Episode @(f.EpisodeEnd.HasValue ? f.EpisodeNumber + "–" + f.EpisodeEnd : f.EpisodeNumber.ToString()) · @string.Join(" · ", new[] { f.Extension.TrimStart('.').ToUpperInvariant(), f.Resolution, f.VideoCodec, f.AudioCodec, Size(f.FileSize), Dur(f.Duration) }.Where(x => !string.IsNullOrEmpty(x)))
+                                    </span>
+                                </div>
+                                <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+                                    @if (!string.IsNullOrWhiteSpace(f.FileUrl))
+                                    {
+                                        <button type="button" class="btn btn-ghost btn-sm copy-source" data-copy-url="@f.FileUrl">Copy URL</button>
+                                        <a class="btn btn-ghost btn-sm" href="@f.FileUrl" target="_blank" rel="noopener" data-file-download>Download</a>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        </details>
+    }
+
     @if (Model.Cast.Count > 0)
     {
         <h2 class="section-title">Cast</h2>
@@ -88,4 +132,5 @@
 
 @section Scripts {
     <script src="~/js/series.js" asp-append-version="true"></script>
+    <script src="~/js/series-sources.js" asp-append-version="true"></script>
 }

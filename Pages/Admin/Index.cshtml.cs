@@ -39,11 +39,13 @@ public class IndexModel : AdminPageModel
     public InspectionBackfill Backfill => _backfill;
 
     public int TotalMovies { get; private set; }
+    public int TotalSeries { get; private set; }
     public int TotalCategories { get; private set; }
     public int TotalSources { get; private set; }
     public DateTime? LastSuccess { get; private set; }
     public bool AnyRunning => _scans.Running.Count > 0 || _backfill.IsRunning || _installer.IsRunning || _posters.IsRunning;
     public List<RecentMovie> Recent { get; private set; } = new();
+    public List<RecentMovie> RecentSeries { get; private set; } = new();
     public List<ScanRow> History { get; private set; } = new();
     public List<ScanRow> Failures { get; private set; } = new();
 
@@ -54,13 +56,16 @@ public class IndexModel : AdminPageModel
     public async Task OnGetAsync()
     {
         var ct = HttpContext.RequestAborted;
-        TotalMovies = await _db.Movies.CountAsync(ct);
+        TotalMovies = await _db.Movies.CountAsync(m => m.ContentType == CatalogType.Movie, ct);
+        TotalSeries = await _db.Movies.CountAsync(m => m.ContentType == CatalogType.Series, ct);
         TotalCategories = await _db.Categories.CountAsync(ct);
         TotalSources = await _db.Sources.CountAsync(ct);
         PendingInspections = await InspectionBackfill.Pending(_db.MediaFiles).CountAsync(ct);
         FolderPosterCount = await _db.Movies.CountAsync(m => m.TmdbId != null && m.LocalPosterUrl != null && m.PosterUrl == m.LocalPosterUrl, ct);
         LastSuccess = await _db.Sources.MaxAsync(s => s.LastSuccessfulScan, ct);
-        Recent = await _db.Movies.AsNoTracking().OrderByDescending(m => m.CreatedAt).Take(10)
+        Recent = await _db.Movies.AsNoTracking().Where(m => m.ContentType == CatalogType.Movie).OrderByDescending(m => m.CreatedAt).Take(10)
+            .Select(m => new RecentMovie(m.Id, m.Title, m.ReleaseYear, m.Source.Name, m.MatchStatus, m.CreatedAt)).ToListAsync(ct);
+        RecentSeries = await _db.Movies.AsNoTracking().Where(m => m.ContentType == CatalogType.Series).OrderByDescending(m => m.CreatedAt).Take(10)
             .Select(m => new RecentMovie(m.Id, m.Title, m.ReleaseYear, m.Source.Name, m.MatchStatus, m.CreatedAt)).ToListAsync(ct);
         History = await Project(_db.ScanHistories.AsNoTracking().OrderByDescending(h => h.StartedAt).Take(10)).ToListAsync(ct);
         Failures = await Project(_db.ScanHistories.AsNoTracking()

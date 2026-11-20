@@ -9,51 +9,159 @@ namespace StreamApp.Infrastructure.Metadata;
 /// <summary>TV side of the metadata service: series are matched against TMDB TV (never movie) data, and season/episode details are copied onto the local rows.</summary>
 public sealed partial class MetadataService
 {
-    public async Task<MatchOutcome> FindSeriesMatchAsync(string title, int? year, CancellationToken ct)
+    // ------------------------------------------------------------------ matching a series directory name
+
+    public sealed record SeriesCandidate(TmdbSearchItem Item, int Score, int TitleScore, int YearDelta, bool? RegionMatch);
+
+    /// <summary>
+    /// Matches a parsed series directory name against TMDB TV. The title decides; the year is only a clue (a provider's 2026 may be TMDB's 2025,
+    /// so TMDB is searched without a year filter and a difference of one year is accepted); a "(US)"-style qualifier separates same-named shows.
+    /// The best candidate is then verified against its TMDB details (title, whether the year falls inside the show's run, whether TMDB has at least
+    /// the seasons found locally) before it is associated. Anything less certain is returned as Ambiguous (needs review) with the closest candidates.
+    /// </summary>
+    public async Task<MatchOutcome> FindSeriesMatchAsync(SeriesName name, IReadOnlyCollection<int>? localSeasons, CancellationToken ct) =>
+        (await FindSeriesMatchCoreAsync(name, localSeasons, ct)).Outcome;
+
+    private sealed record SeriesMatchResult(MatchOutcome Outcome, TmdbTvDetails? Details);
+
+    private static int TitleScore(TmdbSearchItem r, SeriesName n)
     {
-        if (!_tmdb.IsConfigured) return new MatchOutcome(MatchStatus.Unmatched, null, "TMDB is not configured.");
-        if (string.IsNullOrWhiteSpace(title)) return new MatchOutcome(MatchStatus.Unmatched, null, "No title to search for.");
-
-        var results = await _tmdb.SearchTvAsync(title, year, ct);
-        if (results.Count == 0 && year.HasValue) results = await _tmdb.SearchTvAsync(title, null, ct);
-        if (results.Count == 0) return new MatchOutcome(MatchStatus.Unmatched, null, "No TMDB TV results for this title.");
-
-        var ranked = Rank(results, title, year);
-        var best = ranked[0];
-
-        var confident = best.ExactTitle && (best.YearDelta == 0 || !year.HasValue || best.YearDelta == 1);
-        if (confident)
+        var best = 0;
+        var names = new[] { FolderNameParser.Normalize(r.Title), FolderNameParser.Normalize(r.OriginalTitle) }.Where(x => x.Length > 0).ToList();
+        for (var qi = 0; qi < n.Queries.Count; qi++)
         {
-            var rivals = ranked.Skip(1).Where(c => c.ExactTitle && c.YearDelta == best.YearDelta).ToList();
-            var tie = rivals.Count > 0 || (!year.HasValue && ranked.Count(c => c.ExactTitle) > 1);
-            // Series folders rarely carry a year. With several exact-title shows, the clearly more popular one wins; otherwise an admin decides.
-            if (tie)
+            var q = FolderNameParser.Normalize(n.Queries[qi]);
+            if (q.Length == 0) continue;
+            var cap = qi == 0 ? 100 : qi == 1 ? 98 : 94;   // the title as written beats a trimmed or split variant
+            foreach (var t in names)
             {
-                var runnerUp = ranked.Skip(1).Where(c => c.ExactTitle).Select(c => c.Item.Popularity).DefaultIfEmpty(0).Max();
-                if (!(best.Item.Popularity >= 3 * Math.Max(runnerUp, 1) && best.Item.VoteCount >= 100)) confident = false;
+                int sc;
+                if (t == q) sc = cap;
+                else if (StripThe(t) == StripThe(q)) sc = Math.Min(cap, 95);
+                else
+                {
+                    var tw = t.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+                    var qw = q.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+                    var inter = tw.Intersect(qw).Count();
+                    var jac = (double)inter / Math.Max(1, tw.Union(qw).Count());
+                    sc = jac >= 0.75 ? 60 : (t.Length > 3 && q.Length > 3 && (t.Contains(q) || q.Contains(t))) ? 40 : 0;
+                }
+                best = Math.Max(best, sc);
             }
         }
+        return best;
+    }
 
-        if (confident)
-            return new MatchOutcome(MatchStatus.Matched, best.Item.Id, $"Matched '{best.Item.Title}' ({best.Item.Year?.ToString() ?? "?"}).");
+    private static string StripThe(string s) => s.StartsWith("the ", StringComparison.Ordinal) ? s[4..] : s;
 
-        var top = string.Join("; ", ranked.Take(3).Select(c => $"{c.Item.Title} ({c.Item.Year?.ToString() ?? "?"}) #{c.Item.Id}"));
-        return new MatchOutcome(MatchStatus.Ambiguous, null, $"No confident match. Closest: {top}");
+    private static string CountryCode(string region) => region.Equals("UK", StringComparison.OrdinalIgnoreCase) ? "GB" : region.ToUpperInvariant();
+
+    public static List<SeriesCandidate> RankSeries(IEnumerable<TmdbSearchItem> results, SeriesName n)
+    {
+        var list = new List<SeriesCandidate>();
+        foreach (var r in results)
+        {
+            var ts = TitleScore(r, n);
+            var delta = n.Year.HasValue && r.Year.HasValue ? Math.Abs(n.Year.Value - r.Year.Value) : 99;
+            bool? region = n.Region != null && r.OriginCountry is { Count: > 0 } oc ? oc.Contains(CountryCode(n.Region), StringComparer.OrdinalIgnoreCase) : null;
+            var score = ts + (delta == 0 ? 40 : delta == 1 ? 30 : delta == 2 ? 8 : 0) + (region == true ? 20 : region == false ? -20 : 0) + (r.VoteCount > 50 ? 5 : 0);
+            list.Add(new SeriesCandidate(r, score, ts, delta, region));
+        }
+        return list.OrderByDescending(c => c.Score).ThenByDescending(c => c.Item.Popularity).ToList();
+    }
+
+    private static string Describe(IEnumerable<SeriesCandidate> ranked) =>
+        string.Join("; ", ranked.Take(3).Select(c => $"{c.Item.Title} ({c.Item.Year?.ToString() ?? "?"}) #{c.Item.Id}"));
+
+    private async Task<SeriesMatchResult> FindSeriesMatchCoreAsync(SeriesName name, IReadOnlyCollection<int>? localSeasons, CancellationToken ct)
+    {
+        MatchOutcome Done(MatchStatus st, int? id, string note) => new(st, id, note);
+        if (!_tmdb.IsConfigured) return new(Done(MatchStatus.Unmatched, null, "TMDB is not configured."), null);
+        if (string.IsNullOrWhiteSpace(name.Title)) return new(Done(MatchStatus.Unmatched, null, "No title to search for."), null);
+
+        // An id written into the folder name by the provider is the strongest hint there is - but it is still checked to exist as a TV series.
+        if (name.TmdbId is { } hinted && await _tmdb.GetTvDetailsAsync(hinted, ct) is { } hd)
+            return new(Done(MatchStatus.Matched, hinted, $"Matched '{hd.Name}' ({hd.Year?.ToString() ?? "?"}) by the TMDB id in the folder name."), hd);
+
+        var pool = new Dictionary<int, TmdbSearchItem>();
+        foreach (var q in name.Queries.Take(4))
+        {
+            foreach (var r in await _tmdb.SearchTvAsync(q, null, ct)) pool.TryAdd(r.Id, r);
+            var nq = FolderNameParser.Normalize(q);
+            var exact = pool.Values.Any(r => FolderNameParser.Normalize(r.Title) == nq || FolderNameParser.Normalize(r.OriginalTitle) == nq);
+            // TMDB's year filter is exact, so it is only used to dig deeper for a common title - never to exclude a neighbouring year.
+            if (!exact && name.Year is { } y)
+                foreach (var r in await _tmdb.SearchTvAsync(q, y, ct)) pool.TryAdd(r.Id, r);
+            if (exact) break;
+        }
+        if (pool.Count == 0) return new(Done(MatchStatus.Unmatched, null, $"No TMDB TV results for '{name.Title}'."), null);
+
+        var ranked = RankSeries(pool.Values, name);
+        var best = ranked[0];
+        if (best.TitleScore < 40)
+            return new(Done(MatchStatus.Unmatched, null, $"No TMDB TV title resembles '{name.Title}'. Closest: {Describe(ranked)}"), null);
+        if (best.TitleScore < 94)
+            return new(Done(MatchStatus.Ambiguous, null, $"No exact title match for '{name.Title}'. Closest: {Describe(ranked)}"), null);
+
+        // another show with the same title that the year / country does not rule out makes the choice a human one
+        bool Compatible(SeriesCandidate c) => c.TitleScore >= 94 && c.RegionMatch != false && (!name.Year.HasValue || c.YearDelta <= 1 || c.YearDelta == 99);
+        var rivals = ranked.Skip(1).Where(c => Compatible(c) && !(name.Year.HasValue && c.YearDelta > best.YearDelta && best.YearDelta <= 1) && !(best.RegionMatch == true && c.RegionMatch != true)).ToList();
+        if (rivals.Count > 0)
+        {
+            var runnerUp = rivals.Max(c => c.Item.Popularity);
+            var dominant = best.Item.Popularity >= 3 * Math.Max(runnerUp, 1) && best.Item.VoteCount >= 100;
+            if (!dominant) return new(Done(MatchStatus.Ambiguous, null, $"Several shows are titled '{name.Title}'. Closest: {Describe(ranked)}"), null);
+        }
+
+        // ---- verify the candidate against its details before associating it
+        var d = await _tmdb.GetTvDetailsAsync(best.Item.Id, ct);
+        if (d == null) return new(Done(MatchStatus.Ambiguous, null, $"TMDB #{best.Item.Id} could not be read. Closest: {Describe(ranked)}"), null);
+
+        var check = Verify(d, name, localSeasons);
+        if (check != null) return new(Done(MatchStatus.Ambiguous, null, $"Possible: {d.Name} ({d.Year?.ToString() ?? "?"}) #{d.Id} - {check}. Closest: {Describe(ranked)}"), null);
+
+        var yearNote = name.Year.HasValue && d.Year.HasValue && name.Year != d.Year ? $", folder year {name.Year} vs TMDB {d.Year}" : "";
+        return new(Done(MatchStatus.Matched, d.Id, $"Matched '{d.Name}' ({d.Year?.ToString() ?? "?"}){yearNote}."), d);
+    }
+
+    /// <summary>Null when the candidate is consistent with what the directory says; otherwise the reason it needs a human look.</summary>
+    private static string? Verify(TmdbTvDetails d, SeriesName n, IReadOnlyCollection<int>? localSeasons)
+    {
+        if (n.Year is { } y && d.Year is { } first)
+        {
+            var ended = string.Equals(d.Status, "Ended", StringComparison.OrdinalIgnoreCase) || string.Equals(d.Status, "Canceled", StringComparison.OrdinalIgnoreCase);
+            var last = TmdbDates.YearOf(d.LastAirDate) ?? first;
+            var upper = ended ? last : Math.Max(last, DateTime.UtcNow.Year);
+            var lo = first - 1;                       // international / festival release timing
+            var hi = upper + 1;
+            if (y < lo || y > hi) return $"the folder year {y} is outside the show's run ({first}-{(ended ? last.ToString() : "")})";
+        }
+        if (localSeasons is { Count: > 0 } && d.NumberOfSeasons is { } count && count > 0)
+        {
+            var max = localSeasons.Max();
+            if (max > count + 1) return $"the folder has season {max} but TMDB lists {count}";
+        }
+        return null;
     }
 
     /// <summary>Searches TMDB TV for the series entry, stores the id when the match is confident and copies series, season and episode metadata. Never throws for TMDB problems.</summary>
-    public async Task<MatchOutcome> MatchAndApplySeriesAsync(AppDbContext db, Movie movie, string title, int? year, CancellationToken ct)
+    public async Task<MatchOutcome> MatchAndApplySeriesAsync(AppDbContext db, Movie movie, SeriesName name, CancellationToken ct)
     {
         MatchOutcome outcome;
         try
         {
-            outcome = await FindSeriesMatchAsync(title, year, ct);
+            IReadOnlyCollection<int>? local = movie.Series?.Seasons.Where(s => s.Number > 0 && !s.IsCustom).Select(s => s.Number).ToList();
+            var r = await FindSeriesMatchCoreAsync(name, local, ct);
+            outcome = r.Outcome;
             if (outcome.Status == MatchStatus.Matched && outcome.TmdbId is { } id)
-                await ApplySeriesTmdbIdAsync(db, movie, id, MatchStatus.Matched, ct);
+            {
+                if (r.Details != null) await ApplySeriesDetailsAsync(db, movie, r.Details, MatchStatus.Matched, ct);
+                else await ApplySeriesTmdbIdAsync(db, movie, id, MatchStatus.Matched, ct);
+            }
         }
         catch (TmdbException ex)
         {
-            _log.LogWarning("TMDB lookup failed for series '{Title}': {Message}", title, ex.Message);
+            _log.LogWarning("TMDB lookup failed for series '{Title}': {Message}", name.Title, ex.Message);
             outcome = new MatchOutcome(MatchStatus.Unmatched, null, "TMDB lookup failed: " + ex.Message);
         }
 
@@ -66,10 +174,12 @@ public sealed partial class MetadataService
     }
 
     /// <summary>Copies TMDB TV details onto the catalog entry and its <see cref="Series"/> row, then fills every local season and episode.</summary>
-    public async Task ApplySeriesTmdbIdAsync(AppDbContext db, Movie movie, int tmdbId, MatchStatus status, CancellationToken ct)
+    public async Task ApplySeriesTmdbIdAsync(AppDbContext db, Movie movie, int tmdbId, MatchStatus status, CancellationToken ct) =>
+        await ApplySeriesDetailsAsync(db, movie, await _tmdb.GetTvDetailsAsync(tmdbId, ct)
+                ?? throw new TmdbException($"TMDB has no TV series with id {tmdbId}."), status, ct);
+
+    private async Task ApplySeriesDetailsAsync(AppDbContext db, Movie movie, TmdbTvDetails d, MatchStatus status, CancellationToken ct)
     {
-        var d = await _tmdb.GetTvDetailsAsync(tmdbId, ct)
-                ?? throw new TmdbException($"TMDB has no TV series with id {tmdbId}.");
 
         movie.ContentType = CatalogType.Series;
         movie.TmdbId = d.Id;
@@ -136,6 +246,7 @@ public sealed partial class MetadataService
 
         foreach (var season in series.Seasons.OrderBy(s => s.Number))
         {
+            if (season.IsCustom) continue;   // a folder-named group ("OVA", "Saga 2") is not a TMDB season: keep its own name and numbering
             if (onlySeasons != null && !onlySeasons.Contains(season.Number)) continue;
             TmdbSeasonDetails? td;
             try { td = await _tmdb.GetTvSeasonAsync(tmdbId, season.Number, ct); }

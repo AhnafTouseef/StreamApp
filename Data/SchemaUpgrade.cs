@@ -102,6 +102,7 @@ public static class SchemaUpgrade
         await EnsureColumn("Sources", "ContentType", "TEXT NOT NULL DEFAULT 'Automatic'");
         await EnsureColumn("Movies", "ContentType", "TEXT NOT NULL DEFAULT 'Movie'");
         await EnsureColumn("MediaFiles", "EpisodeId", "INTEGER NULL REFERENCES \"Episodes\" (\"Id\") ON DELETE CASCADE");
+        await EnsureColumn("Seasons", "IsCustom", "INTEGER NOT NULL DEFAULT 0");
         await EnsureColumn("Subtitles", "EpisodeId", "INTEGER NULL REFERENCES \"Episodes\" (\"Id\") ON DELETE CASCADE");
 
         // ---- indexes (IF NOT EXISTS makes these idempotent)

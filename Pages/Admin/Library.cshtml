@@ -1,7 +1,7 @@
 @page "/admin/library"
 @model StreamApp.Pages.Admin.LibraryModel
 @{
-    ViewData["Title"] = "Library"; ViewData["Active"] = "library";
+    ViewData["Title"] = "Library"; ViewData["Active"] = "library"; if (Model.AnyRescanRunning) { ViewData["Refresh"] = 5; }
     var cat = Model.Cat; var src = Model.Src;
     var openCat = Model.OpenDialog == "category"; var openSrc = Model.OpenDialog == "source";
 }
@@ -45,7 +45,7 @@
                 <a class="slug" href="/movies/@c.Slug" target="_blank" rel="noopener">/movies/@c.Slug</a>
                 @if (!c.IsActive) { <span class="chip chip-off">Hidden</span> }
                 else if (node.HiddenByParent) { <span class="chip chip-off" title="A parent category is hidden">Hidden via parent</span> }
-                <span class="muted count">@node.MovieCount.ToString("N0") movies</span>
+                <span class="muted count">@node.MovieCount.ToString("N0") movies@(node.SeriesCount > 0 ? $" · {node.SeriesCount:N0} series" : "")</span>
             </div>
             <div class="actions">
                 <a class="btn btn-ghost btn-sm" href="/admin/library?editCategory=@c.Id">Edit category</a>
@@ -85,8 +85,16 @@
                             else if (s.LastScanStatus.HasValue) { <span class="status @s.LastScanStatus">@s.LastScanStatus</span> }
                             else { <span class="muted">not scanned</span> }
                             @if (!string.IsNullOrEmpty(s.LastError)) { <div class="muted" style="max-width:260px">@s.LastError</div> }
+                            @if (Model.RescanOf(s.Id) is { } rs)
+                            {
+                                <div class="muted" style="max-width:300px;margin-top:4px">
+                                    <strong>TMDB rescan@(rs.Running ? $" {rs.Processed:N0}/{rs.Total:N0}…" : "")</strong>
+                                    matched @rs.Matched.ToString("N0") (new @rs.NewlyMatched.ToString("N0")) · unmatched @rs.Unmatched.ToString("N0") · needs review @rs.NeedsReview.ToString("N0") · failed @rs.Failed.ToString("N0")@(rs.ManualKept > 0 ? $" · {rs.ManualKept:N0} manual kept" : "")
+                                    @if (!string.IsNullOrEmpty(rs.Error)) { <span> · @rs.Error</span> }
+                                </div>
+                            }
                         </td>
-                        <td>@ls.MovieCount.ToString("N0")</td>
+                        <td>@ls.MovieCount.ToString("N0") movies@(ls.SeriesCount > 0 ? $" · {ls.SeriesCount:N0} series" : "")</td>
                         <td class="actions">
                             @if (running != null)
                             {
@@ -101,6 +109,8 @@
                                 <summary class="btn btn-ghost btn-sm btn-icon" aria-label="More">⋯</summary>
                                 <div class="kebab-pop">
                                     <form method="post" asp-page-handler="Scan" asp-route-id="@s.Id" asp-route-deep="true" onsubmit="return confirm('A deep scan re-lists every year folder and may take a while. Continue?')"><button class="kebab-item" type="submit" disabled="@(running != null)">Deep scan</button></form>
+                                    <form method="post" asp-page-handler="RescanTmdb" asp-route-id="@s.Id" title="Searches TMDB again for entries that are unmatched or need review. No crawling, no re-probing; manual corrections are kept."><button class="kebab-item" type="submit" disabled="@(Model.RescanOf(s.Id)?.Running == true)">Rescan TMDB</button></form>
+                                    <form method="post" asp-page-handler="RescanTmdb" asp-route-id="@s.Id" asp-route-recheck="true" title="Also compares already matched entries and flags the ones the current rules would match differently."><button class="kebab-item" type="submit" disabled="@(Model.RescanOf(s.Id)?.Running == true)">Rescan TMDB (re-check matched)</button></form>
                                     <form method="post" asp-page-handler="TestSource" asp-route-id="@s.Id"><button class="kebab-item" type="submit">Test connection</button></form>
                                     <form method="post" asp-page-handler="ToggleSource" asp-route-id="@s.Id"><button class="kebab-item" type="submit">@(s.IsEnabled ? "Disable crawling" : "Enable crawling")</button></form>
                                     @if (ls.Misfiled > 0)
@@ -108,8 +118,8 @@
                                         <form method="post" asp-page-handler="SyncCategory" asp-route-id="@s.Id" onsubmit="return confirm('Move all @ls.Misfiled movies of this source into @c.Name? Movies you filed elsewhere by hand are moved too.')"><button class="kebab-item" type="submit">Move movies here (@ls.Misfiled)</button></form>
                                     }
                                     <div class="kebab-sep"></div>
-                                    <form method="post" asp-page-handler="ClearSource" asp-route-id="@s.Id" onsubmit="return confirm('Remove the @ls.MovieCount movie entries of this source and forget what was scanned? The source stays, so you can scan it again from scratch.')"><button class="kebab-item is-danger" type="submit" disabled="@(running != null)">Clear movies</button></form>
-                                    <form method="post" asp-page-handler="DeleteSource" asp-route-id="@s.Id" onsubmit="return confirm('Delete this source AND its @ls.MovieCount movie entries? This cannot be undone (the ISP server itself is not touched).')"><button class="kebab-item is-danger" type="submit" disabled="@(running != null)">Delete source</button></form>
+                                    <form method="post" asp-page-handler="ClearSource" asp-route-id="@s.Id" onsubmit="return confirm('Remove the @((ls.MovieCount + ls.SeriesCount).ToString("N0")) entries (movies and series) of this source and forget what was scanned? The source stays, so you can scan it again from scratch.')"><button class="kebab-item is-danger" type="submit" disabled="@(running != null)">Clear all entries</button></form>
+                                    <form method="post" asp-page-handler="DeleteSource" asp-route-id="@s.Id" onsubmit="return confirm('Delete this source AND its @((ls.MovieCount + ls.SeriesCount).ToString("N0")) entries (movies and series)? This cannot be undone (the ISP server itself is not touched).')"><button class="kebab-item is-danger" type="submit" disabled="@(running != null)">Delete source</button></form>
                                 </div>
                             </details>
                         </td>
@@ -170,7 +180,7 @@
                     <span class="hint"><b>Auto</b>: detect from the listing · <b>YearBased</b>: year folders, only the latest year on routine scans · <b>Flat</b>: each folder is a movie · <b>RecursiveDiscovery</b>: walk the tree, a folder with videos is a movie · <b>ManualFull</b>: like recursive, never scanned automatically.</span></div>
                 <div class="field"><label asp-for="Src.ContentType">Content type</label>
                     <select asp-for="Src.ContentType" asp-items="Html.GetEnumSelectList<StreamApp.Models.SourceContentType>()"></select>
-                    <span class="hint"><b>Automatic</b>: the crawler inspects the folder structure (season folders containing videos mean series) · <b>Movies</b> / <b>Series</b>: force it. Category names are never used for this.</span></div>
+                    <span class="hint"><b>Automatic</b>: the crawler inspects the folder structure (season folders containing videos mean series) · <b>Movies</b> / <b>Series</b>: force it. With <b>Series</b> your choice is trusted: every folder directly inside a series folder that holds video files is a season/group whatever it is called (Season, Stage, Saga, OVA, Special …) and its name is kept; videos lying directly in the series folder are included too. Category names are never used for this.</span></div>
                 <div class="field"><label asp-for="Src.CooldownHours">Cooldown (hours)</label><input asp-for="Src.CooldownHours" type="number" min="1" max="8760" /><span class="hint">Minimum time between automatic scans triggered by page visits. The first scan of a source imports every year folder (newest first, in the background, so it can take a long time on a large server); later routine scans only re-check the latest year.</span></div>
                 <div class="field wide"><label asp-for="Src.IncludedFolders">Included folders (optional, one per line, * and ? allowed)</label><textarea asp-for="Src.IncludedFolders" placeholder="James Bond Collection"></textarea><span class="hint">Year-based sources: year folders are always scanned; other folders (collections) are scanned only when listed here.</span></div>
                 <div class="field wide"><label asp-for="Src.ExcludedFolders">Excluded folders (optional, one per line)</label><textarea asp-for="Src.ExcludedFolders" placeholder="Marvel MCU"></textarea></div>

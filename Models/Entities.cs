@@ -147,6 +147,9 @@ public class Season
     public string? FolderName { get; set; }
     public string? FolderUrl { get; set; }
     public DateTime? FolderLastModified { get; set; }
+    /// <summary>A group created from a manually configured Series source whose folder name is not a season ("OVA", "Saga 2", "Stage 1" …).
+    /// Its <see cref="Name"/> is the original folder name and TMDB season data is never applied to it.</summary>
+    public bool IsCustom { get; set; }
     public ICollection<Episode> Episodes { get; set; } = new List<Episode>();
 }
 

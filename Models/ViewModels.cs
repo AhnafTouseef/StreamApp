@@ -142,7 +142,33 @@ public sealed class SeasonDto
     public string? PosterUrl { get; set; }
     public DateTime? AirDate { get; set; }
     public List<EpisodeDto> Episodes { get; set; } = new();
-    public string Label => Number == 0 ? "Specials" : "Season " + Number;
+    /// <summary>A group made from a folder whose name is not a season ("OVA", "Saga 2"): it keeps the folder's own name.</summary>
+    public bool IsCustom { get; set; }
+    public string Label => IsCustom && !string.IsNullOrWhiteSpace(Name) ? Name! : Number == 0 ? "Specials" : "Season " + Number;
+}
+
+/// <summary>One media file of a series, for the Available Sources list.</summary>
+public sealed class SourceFileDto
+{
+    public int Id { get; set; }
+    public string FileName { get; set; } = "";
+    public string FileUrl { get; set; } = "";
+    public string Extension { get; set; } = "";
+    public long? FileSize { get; set; }
+    public double? Duration { get; set; }
+    public string? Resolution { get; set; }
+    public string? VideoCodec { get; set; }
+    public string? AudioCodec { get; set; }
+    public int EpisodeNumber { get; set; }
+    public int? EpisodeEnd { get; set; }
+}
+
+/// <summary>The files of one season / group of a series.</summary>
+public sealed class SourceGroupDto
+{
+    public int SeasonNumber { get; set; }
+    public string Label { get; set; } = "";
+    public List<SourceFileDto> Files { get; set; } = new();
 }
 
 /// <summary>A series entry with its seasons and episodes (no media files: those are loaded for the one episode being played).</summary>
