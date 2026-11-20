@@ -63,6 +63,18 @@ public sealed partial class MetadataService
 
     public async Task<MatchOutcome> FindMatchAsync(string title, int? year, CancellationToken ct)
     {
+        var first = await FindMatchCoreAsync(title, year, ct);
+        // "12 - Inception": the number may be an uploader's rank, so when the title as written is not a confident match it is tried without it
+        if (first.Status != MatchStatus.Matched && FolderNameParser.StripWeakRank(title) is { Length: > 1 } bare)
+        {
+            var second = await FindMatchCoreAsync(bare, year, ct);
+            if (second.Status == MatchStatus.Matched) return second;
+        }
+        return first;
+    }
+
+    private async Task<MatchOutcome> FindMatchCoreAsync(string title, int? year, CancellationToken ct)
+    {
         if (!_tmdb.IsConfigured) return new MatchOutcome(MatchStatus.Unmatched, null, "TMDB is not configured.");
         if (string.IsNullOrWhiteSpace(title)) return new MatchOutcome(MatchStatus.Unmatched, null, "No title to search for.");
 

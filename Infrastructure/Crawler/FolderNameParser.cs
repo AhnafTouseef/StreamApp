@@ -15,9 +15,21 @@ public static class FolderNameParser
     private static readonly Regex SpacesRx = new(@"\s+", RegexOptions.Compiled);
 
     /// <param name="rawName">Folder name, or file name without its extension.</param>
+    // A serial number a site or uploader put in front of the name to rank / order its list ("001. Title", "#7 Title", "[05] Title", "(03) Title", "025_Title").
+    // "Strong" forms carry punctuation or leading zeros, which real titles do not start with, so they are always removed. A bare "12 Monkeys" / "21 Jump Street" /
+    // "300" / "1883" is never touched, and "007" is a title.
+    private static readonly Regex StrongRankRx = new(@"^\s*(?:#\s*\d{1,4}|[\(\[]\s*\d{1,4}\s*[\)\]]|\d{1,4}(?:\.\s|\)\s*|:\s)|(?!007(?![0-9]))0\d{1,3}(?=[\s._]))\s*[-–—.:_]*\s*(?=\p{L})", RegexOptions.Compiled);
+    // "12 - The Office" can be a rank or a real title ("300 - Rise of an Empire"): it is only tried as a second search.
+    private static readonly Regex WeakRankRx = new(@"^\s*\d{1,4}\s+[-–—]\s+(?=\p{L})", RegexOptions.Compiled);
+
+    public static string StripStrongRank(string? name) => StrongRankRx.Replace(name ?? "", "").Trim();
+    public static string? StripWeakRank(string? name) =>
+        name != null && WeakRankRx.IsMatch(name) ? WeakRankRx.Replace(name, "").Trim() : null;
+
     public static ParsedName Parse(string rawName)
     {
-        var name = (rawName ?? "").Trim();
+        var name = StripStrongRank((rawName ?? "").Trim());
+        if (name.Length == 0) name = (rawName ?? "").Trim();
 
         int? year = null;
         var cut = -1;

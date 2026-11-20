@@ -70,6 +70,14 @@ public static class SeriesNameParser
             s = s[m.Length..];
         }
 
+        // a serial number an uploader put in front to rank the list ("001. Show", "#7 Show", "(03) Show"): not part of the name
+        var unranked = FolderNameParser.StripStrongRank(s);
+        if (unranked.Length > 0 && unranked.Length != s.Trim().Length)
+        {
+            AddLabel(labels, "Rank: " + s.Trim()[..(s.Trim().Length - unranked.Length)].Trim(' ', '#', '.', ')', '(', '[', ']', ':', '_', '-', '–', '—'));
+            s = unranked;
+        }
+
         // "Show.Name.2019.S01" / "Show_Name": separators stand for spaces, but dots are kept when the name already has spaces.
         if (!s.Contains(' ')) s = s.Replace('.', ' ');
         s = s.Replace('_', ' ');
@@ -218,6 +226,7 @@ public static class SeriesNameParser
     private static IReadOnlyList<string> Variants(string title)
     {
         var list = new List<string> { title };
+        if (FolderNameParser.StripWeakRank(title) is { Length: > 1 } unranked) list.Add(unranked);   // "12 - The Office": maybe a rank, so also searched without it
         var noParens = CleanTitle(GroupRx.Replace(title, " "));
         if (noParens.Length > 0) list.Add(noParens);
         foreach (var basis in new[] { title, noParens }.Distinct())
