@@ -198,6 +198,7 @@ body.has-announce { --ann-h: 36px; }
 /* ---------- player ---------- */
 .watch-page { padding: calc(var(--header-h) + 14px) var(--pad) 40px; max-width: 1500px; margin: 0 auto; }
 .player { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; max-height: 78vh; width: 100%; user-select: none; }
+.player:focus { outline: none; }
 .player.is-full { border-radius: 0; max-height: none; aspect-ratio: auto; }
 .player video { width: 100%; height: 100%; display: block; background: #000; }
 .player video::cue { background: rgba(0,0,0,.72); font-size: 1.1em; }
@@ -676,3 +677,28 @@ button.set-row:hover { background: rgba(255,255,255,.08); }
 .source-group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .source-group-head h3 { margin: 0; font-size: 1rem; }
 .source-group-head h3 small { font-weight: 400; margin-left: 6px; }
+
+/* series watch page: the "next episode" bar sits right under the player */
+.series-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 18px; margin-top: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); }
+.series-bar .compat-switch { min-height: 36px; }
+.series-bar .compat-label { font-size: .92rem; }
+.series-nav { display: flex; gap: 8px; margin-left: auto; }
+.series-nav .btn { white-space: nowrap; }
+@media (max-width: 900px) {
+  .ep-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .watch-info h1 { font-size: 1.35rem; }
+  .watch-info .ep-grid { max-height: 56vh; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+}
+@media (max-width: 640px) {
+  .watch-page { padding-left: 0; padding-right: 0; }
+  .watch-page .player { border-radius: 0; }
+  .watch-info, .series-bar { margin-left: var(--pad); margin-right: var(--pad); }
+  .series-bar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .series-bar .compat-switch { min-height: 44px; }
+  .series-nav { margin-left: 0; }
+  .series-nav .btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
+  .season-btn { padding: 10px 16px; }
+  .ep-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ep-btn { min-height: 46px; padding: 8px 10px; }
+  .ep-btn span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.2; }
+}

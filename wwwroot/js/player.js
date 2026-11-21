@@ -1597,6 +1597,16 @@
   ['mousemove', 'touchstart', 'keydown'].forEach(function (ev) { player.addEventListener(ev, wake, { passive: true }); });
   video.addEventListener('play', wake);
 
+  // When a video starts, the player becomes the active element so Space, arrows, F, M, C … work at once without clicking it first.
+  // Text and number fields (subtitle tuner, search) keep the focus they have.
+  function focusPlayer() {
+    var a = document.activeElement;
+    if (a && a !== document.body && !player.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    try { player.focus({ preventScroll: true }); } catch (_) { /* ignore */ }
+  }
+  video.addEventListener('play', focusPlayer);
+  video.addEventListener('playing', focusPlayer);
+
   player.addEventListener('keydown', function (e) {
     if (e.target.closest && (e.target.closest('.tuner') || e.target.closest('.settings'))) {
       if (e.key === 'Escape') { closeTuner(); closeMenus(); }

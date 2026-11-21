@@ -118,6 +118,23 @@
             <input type="file" id="sub-file" accept=".srt,.vtt,.ass,.ssa" hidden />
         </div>
 
+        @if (isSeries)
+        {
+            var curEp = Model.CurrentEpisode;
+            var nextEp = curEp != null ? Model.Series!.Next(curEp) : null;
+            var prevEp = curEp != null ? Model.Series!.Previous(curEp) : null;
+            <div class="series-bar" id="series-bar">
+                <label class="compat-switch autonext-switch" for="autonext">
+                    <input type="checkbox" id="autonext" role="switch" checked />
+                    <span class="compat-track" aria-hidden="true"></span>
+                    <span class="compat-label">Play next episode automatically</span>
+                </label>
+                <div class="series-nav">
+                    @if (prevEp != null) { <a class="btn btn-ghost btn-sm" href="/watch/@m.Id?episode=@prevEp.Id&amp;next=1" rel="prev">‹ Previous</a> }
+                    @if (nextEp != null) { <a class="btn btn-primary btn-sm" href="/watch/@m.Id?episode=@nextEp.Id&amp;next=1" rel="next">Next episode ›</a> }
+                </div>
+            </div>
+        }
         <div class="watch-info">
             @if (Model.CurrentEpisode is { } ce)
             {
@@ -144,7 +161,6 @@
             @if (isSeries)
             {
                 <partial name="_SeriesPicker" model="@(new SeriesPickerModel(Model.Series!, Model.CurrentEpisode?.Id))" />
-                <label class="autonext muted small"><input type="checkbox" id="autonext" checked /> Play the next episode automatically</label>
             }
             <p><a href="@backUrl">← Back to details</a></p>
         </div>
