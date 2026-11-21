@@ -173,7 +173,7 @@ body.has-announce { --ann-h: 36px; }
 .detail-hero { position: relative; isolation: isolate; padding: calc(var(--header-h) + 40px) var(--pad) 40px; }
 .detail-bg { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center 15%; opacity: .45; }
 .detail-hero::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(to top, var(--bg), rgba(var(--bg-rgb),.6) 60%, rgba(var(--bg-rgb),.85)); }
-.detail-grid { display: grid; grid-template-columns: minmax(180px, 300px) 1fr; gap: 36px; max-width: 1300px; margin: 0 auto; }
+.detail-grid { display: grid; grid-template-columns: minmax(180px, 300px) minmax(0, 1fr); gap: 36px; max-width: 1300px; margin: 0 auto; }
 .detail-poster { position: relative; border-radius: 14px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.6); aspect-ratio: 2/3; background: var(--bg-3); }
 .detail-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
 .detail-info h1 { font-size: clamp(1.8rem, 4vw, 3rem); margin-bottom: 4px; }
@@ -209,7 +209,7 @@ body.has-announce { --ann-h: 36px; }
 .player-message { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; background: rgba(8,9,12,.88); }
 .player-message.is-on { display: grid; }
 .player-message p { max-width: 520px; color: #d3d7e0; }
-.watch-info { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 18px; }
+.watch-info { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 18px; }
 .watch-info h1 { font-size: 1.6rem; margin: 0; }
 .compat-switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
 .compat-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -283,7 +283,7 @@ details.panel summary { cursor: pointer; font-weight: 600; }
   .site-nav { position: fixed; inset: var(--header-h) 0 auto 0; flex-direction: column; align-items: stretch; padding: 10px var(--pad) 18px; background: rgba(var(--bg-rgb),.98); border-bottom: 1px solid var(--line); transform: translateY(-120%); transition: transform .25s; flex: none; max-height: calc(100vh - var(--header-h)); overflow: auto; }
   .site-nav.is-open { transform: none; }
   .nav-menu { position: static; opacity: 1; visibility: visible; transform: none; border: 0; box-shadow: none; padding: 0 0 0 14px; background: none; }
-  .detail-grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
   .detail-poster { max-width: 220px; }
   .admin-shell { grid-template-columns: 1fr; }
   .admin-side { position: static; height: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -702,3 +702,8 @@ button.set-row:hover { background: rgba(255,255,255,.08); }
   .ep-btn { min-height: 46px; padding: 8px 10px; }
   .ep-btn span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.2; }
 }
+
+/* A long row of season buttons scrolls inside its own strip: it must never widen the page or the episode grid next to it. */
+.watch-info > *, .detail-info > *, .detail-grid > * { min-width: 0; }
+.series-picker { min-width: 0; max-width: 100%; }
+.season-tabs { max-width: 100%; overscroll-behavior-x: contain; }
