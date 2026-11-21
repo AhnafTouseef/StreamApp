@@ -496,7 +496,7 @@ body.embed { min-height: 0; display: block; background: var(--bg); }
 
 /* ---- player gestures: skip flashes, 2x badge ---- */
 .player video { touch-action: manipulation; -webkit-touch-callout: none; }
-.seek-flash { position: absolute; top: 0; bottom: 0; width: 30%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+.seek-flash { position: absolute; top: 0; bottom: 0; width: 22%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   color: #fff; font-size: 1rem; pointer-events: none; opacity: 0; z-index: 5; background: rgba(255,255,255,.16); text-shadow: 0 1px 6px rgba(0,0,0,.6); }
 .seek-flash span { font-size: 2rem; line-height: 1; }
 .seek-back { left: 0; border-radius: 0 50% 50% 0 / 0 50% 50% 0; }

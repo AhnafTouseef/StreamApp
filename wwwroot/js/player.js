@@ -144,92 +144,126 @@
     var codec = String(cfg.videoCodec || '').toUpperCase();
     var why = cfg.alwaysEncode ? 'the server is set to always re-encode the picture'
       : !copyPossible() ? (codec ? codec + ' video cannot be copied by the server' : 'the video format is not known')
-      : !pictureCopyOn() && !pinned && !copyAdvised() ? codec + ' video cannot be copied for this browser'
       : autoPicture ? 'this browser could not show the copied picture (for example 10-bit video)'
       : oneShotEncode ? 'a copied picture cannot start exactly at the point you jumped to'
       : '';
     var sound = audioCopyOn() ? 'copies the sound when it can' : 'converts the sound';
-    if (!why && !pictureCopyOn()) why = 'chosen with the stream method buttons';
+    if (!why && !pictureCopyOn()) why = pinned ? 'chosen with the stream method buttons' : 'this browser did not play the copied stream with sound';
     return why ? 'Compatibility mode: the server is re-encoding the picture (' + why + ') and ' + sound + '. '
                  + (cfg.hwEncoder ? 'The re-encode runs on the server\'s graphics hardware (' + cfg.hwEncoder + '), so it is lighter on the CPU.' : 'This uses a lot of server CPU.')
                : audioCopyOn() ? 'Compatibility mode: the server copies the picture and the sound (very light on CPU); the sound is converted only when its timing needs fixing.'
                : 'Compatibility mode: the server copies the picture and only converts the audio (light on CPU).';
   }
 
-  // ------------------------------------------------------------ speed: how much the server converts
+  // ------------------------------------------------------------ stream method: how much the server converts
   // Fastest = picture and sound copied, Fast = sound converted, Slow = picture re-encoded (sound copied), Slowest = both converted.
-  // Almost every movie works with Fastest. The slower ones are for the rare file whose picture or sound does not show or play right with a copy.
+  //
+  // How the player decides (one rule; what the browser merely claims never picks a method):
+  //  1. Before anything plays, only certain facts decide whether the file needs compatibility mode at all (see startPlan): the sound to hear is not the file's first
+  //     audio track (a browser plays the first one and cannot switch), or the first track is a codec no browser plays.
+  //  2. Compatibility mode always starts at Fastest. It is judged by evidence after the movie has really played for JUDGE_AFTER seconds: did the browser decode sound,
+  //     did it decode picture frames.
+  //  3. Only the part that failed is stepped down (sound first, it is the cheapest, then the picture), and every step is judged again the same way. Nothing steps back up by itself.
+  //  4. A method the viewer clicks is applied at once and the player never changes it: if it does not work, the player says so and offers the next step in one tap.
   var SPEEDS = ['fastest', 'fast', 'slow', 'slowest'];
   var SPEED_LABEL = { fastest: 'Fastest', fast: 'Fast', slow: 'Slow', slowest: 'Slowest' };
   var SPEED_KEY = 'sa.speed.' + cfg.fileId;
   var speedMode = (function () { var v = store.get(SPEED_KEY); return SPEEDS.indexOf(v) >= 0 ? v : 'fastest'; })();
-  // A method the viewer chose (now or on an earlier visit) is never changed by the player: if it does not work, the player says so and leaves it, so it can be looked into.
-  // The player only moves by itself off the default (Fastest), and never closes anything: every method that is possible for the movie stays selectable.
-  var pinned = SPEEDS.indexOf(store.get(SPEED_KEY)) >= 0;
-  // Sound this browser can play inside an MP4 as it is. The browser says so itself (AC3 is often missing, AAC and MP3 nearly never).
-  var AUDIO_MP4 = { aac: 'mp4a.40.2', mp3: 'mp4a.6B', ac3: 'ac-3', eac3: 'ec-3' };
-  function audioCodecOk(codec) {
-    var cs = AUDIO_MP4[String(codec || '').toLowerCase()];
-    try { return !!cs && !!video.canPlayType && video.canPlayType('audio/mp4; codecs="' + cs + '"') !== ''; } catch (_) { return false; }
+  var pinned = SPEEDS.indexOf(store.get(SPEED_KEY)) >= 0;     // the viewer chose the method (now or on an earlier visit)
+  var streamParts = null;       // what the loaded compatibility stream is asked to copy: { pc: picture, ac: sound }
+  var verified = {};            // method + audio track combinations that were seen playing with sound and picture in this page view
+  var actual = null;            // what the server really does for the loaded compatibility stream (asked for after the stream opens): { seq, pc, ac, d }
+  function liveParts() { return actual && actual.seq === loadSeq ? { pc: actual.pc, ac: actual.ac } : { pc: pictureCopyOn(), ac: audioCopyOn() }; }
+
+  // Sound a browser can play at all (the browser's own answer; it is only a first look, evidence decides). DTS, TrueHD, PCM variants and the like are never played by a browser.
+  var DIRECT_AUDIO = {
+    aac: ['audio/mp4; codecs="mp4a.40.2"'], mp3: ['audio/mpeg', 'audio/mp4; codecs="mp4a.6B"'],
+    opus: ['audio/webm; codecs="opus"', 'audio/mp4; codecs="opus"'], vorbis: ['audio/webm; codecs="vorbis"', 'audio/ogg; codecs="vorbis"'],
+    flac: ['audio/flac', 'audio/mp4; codecs="flac"'], ac3: ['audio/mp4; codecs="ac-3"'], eac3: ['audio/mp4; codecs="ec-3"']
+  };
+  function browserPlaysAudio(codec) {
+    var c = String(codec || '').toLowerCase();
+    if (!c) return true;                                   // not known: nothing to say against it
+    var list = DIRECT_AUDIO[c];
+    if (!list) return false;
+    try { return list.some(function (m) { return !!video.canPlayType && video.canPlayType(m) !== ''; }); } catch (_) { return true; }
   }
   function chosenAudioTrack() {
     var idx = currentAudioIndex();
     for (var i = 0; i < audioTracks.length; i++) if (audioTracks[i].index === idx) return audioTracks[i];
     return null;
   }
-  // What the server can copy (selectable) against what this browser says it can play (only advice for the default method). The browser's own claim is wrong often enough,
-  // in both directions, that it must not close an option the viewer might want to try.
+  function soundExpected() { return !!chosenAudioTrack() || (!audioTracks.length && !!cfg.audioCodec); }
+  // What the server can copy for this movie (its own limits). Whether the browser then plays the copy is found out, not assumed.
   function audioCopyPossible() {
     var a = chosenAudioTrack();
     return cfg.copyAudio !== false && !!a && /^(aac|mp3|ac3|eac3)$/.test(String(a.codec || '').toLowerCase()) && a.channels >= 1 && a.channels <= 8;
   }
-  function audioCopyAdvised() { var a = chosenAudioTrack(); return audioCopyPossible() && audioCodecOk(a.codec); }
-  function speedAllowed(m) {
-    return m === 'fastest' ? copyPossible() && audioCopyPossible()
-         : m === 'fast' ? copyPossible()
-         : m === 'slow' ? audioCopyPossible()
-         : true;
+  function wantsPictureCopy() { return speedMode === 'fastest' || speedMode === 'fast'; }
+  function wantsSoundCopy() { return speedMode === 'fastest' || speedMode === 'slow'; }
+  // The method asks for a copy; a part the server cannot copy is converted instead (the server does exactly the same), so the method in use is worked out from the parts.
+  function pictureCopyOn() { return wantsPictureCopy() && copyPossible(); }
+  function audioCopyOn() { return wantsSoundCopy() && audioCopyPossible(); }
+  function partsToSpeed(pc, ac) { return pc && ac ? 'fastest' : pc ? 'fast' : ac ? 'slow' : 'slowest'; }
+  function effectiveSpeed() { return partsToSpeed(pictureCopyOn(), audioCopyOn()); }
+  // Why a method cannot be taken literally for this movie (nothing is ever greyed out: the part is converted and the viewer is told).
+  function speedLimit(m) {
+    var a = chosenAudioTrack(), parts = [];
+    if ((m === 'fastest' || m === 'fast') && !copyPossible())
+      parts.push(cfg.alwaysEncode ? 'the server is set to re-encode the picture' : (cfg.videoCodec ? String(cfg.videoCodec).toUpperCase() + ' picture' : 'this picture') + ' cannot be copied');
+    if ((m === 'fastest' || m === 'slow') && !audioCopyPossible())
+      parts.push((a && a.codec ? String(a.codec).toUpperCase() : 'this') + ' sound cannot be copied');
+    return parts.join(' and ');
   }
-  function speedAdvised(m) {
-    return m === 'fastest' ? copyAdvised() && audioCopyAdvised()
-         : m === 'fast' ? copyAdvised()
-         : m === 'slow' ? audioCopyAdvised()
-         : true;
+  function actualText(d) {
+    var pic = d.picture === 'copied' ? 'Picture copied' : 'Picture re-encoded' + (d.pictureWhy && d.pictureWhy !== 'ok' ? ' (' + d.pictureWhy + ')' : '') + (d.encoder ? ' on ' + d.encoder : '');
+    var snd = d.sound === 'copied' ? 'sound copied' : 'sound converted' + (d.soundWhy && d.soundWhy !== 'ok' ? ' (' + d.soundWhy + ')' : '');
+    return 'Running now: ' + pic + ', ' + snd + '.';
   }
-  // The chosen speed, or the next slower one when this movie cannot do the chosen one (for example a picture the browser can only show re-encoded).
-  // A method the viewer chose is used as it is (when the server can do it at all); otherwise the first method from the default that this browser is expected to play.
-  function effectiveSpeed() {
-    var ok = pinned ? speedAllowed : speedAdvised;
-    for (var i = Math.max(0, SPEEDS.indexOf(speedMode)); i < SPEEDS.length; i++) if (ok(SPEEDS[i])) return SPEEDS[i];
-    return 'slowest';
+  // Asks the server what it really did for this stream (a method can ask for a copy and the server may still convert, for example when the sound would not line up).
+  function fetchReport() {
+    var seq = loadSeq;
+    if (mode !== 'remux' || typeof fetch !== 'function') return;
+    fetch(cfg.remuxUrl + '/report?s=' + sid, { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.status === 200 ? r.json() : null; })
+      .then(function (d) {
+        if (!d || seq !== loadSeq || mode !== 'remux') return;
+        actual = { seq: seq, pc: d.picture === 'copied', ac: d.sound === 'copied', d: d };
+        if (!ui.hideTech) { statusBase = 'Compatibility mode. ' + actualText(d); setStatus(statusBase); }
+        renderSpeed();
+      })
+      .catch(function () { /* the report is only information */ });
   }
-  function pictureCopyOn() { var e = effectiveSpeed(); return (e === 'fastest' || e === 'fast') && copyPossible(); }
-  function audioCopyOn() { var e = effectiveSpeed(); return (e === 'fastest' || e === 'slow') && audioCopyPossible(); }
   function renderSpeed() {
     if (!el.speedRow) return;
     var show = mode === 'remux' && cfg.remuxEnabled;
     el.speedRow.hidden = !show;
     if (el.btnMethod) el.btnMethod.hidden = !show;
     if (!show) { if ($('view-method').classList.contains('is-on')) showView('set-home'); return; }
-    var eff = effectiveSpeed();
-    setVal(el.valMethod, SPEED_LABEL[eff]);
+    var lp = liveParts(), eff = actual && actual.seq === loadSeq ? partsToSpeed(lp.pc, lp.ac) : effectiveSpeed();
+    setVal(el.valMethod, SPEED_LABEL[speedMode] + (eff !== speedMode ? ' (running as ' + SPEED_LABEL[eff] + ')' : ''));
+    var note = $('speed-actual');
+    if (note) note.textContent = actual && actual.seq === loadSeq ? actualText(actual.d) : '';
     [].forEach.call(el.speedBtns.querySelectorAll('button'), function (b) {
-      var m = b.getAttribute('data-speed'), ok = speedAllowed(m);
-      b.disabled = !ok;
-      b.setAttribute('aria-pressed', m === eff ? 'true' : 'false');
-      b.classList.toggle('is-on', m === eff);
-      b.title = !ok ? 'Not available for this movie' : speedAdvised(m) ? '' : 'This browser says it may not play this directly. You can still try it.';
+      var m = b.getAttribute('data-speed'), lim = speedLimit(m);
+      b.disabled = false; b.removeAttribute('disabled');
+      b.setAttribute('aria-pressed', m === speedMode ? 'true' : 'false');
+      b.classList.toggle('is-on', m === speedMode);
+      b.title = lim ? lim.charAt(0).toUpperCase() + lim.slice(1) + ', so the server converts it instead.' : '';
     });
   }
+  // A click always takes effect, whether the movie plays or is paused, and is the viewer's choice from then on.
   function setSpeed(m, quiet) {
-    if (SPEEDS.indexOf(m) < 0 || !speedAllowed(m)) return;
-    if (m === effectiveSpeed()) { if (!pinned) { pinned = true; speedMode = m; store.set(SPEED_KEY, m); } return; }   // the method in use, kept as the viewer's choice
-    speedMode = m; pinned = true; autoPicture = false; store.set(SPEED_KEY, m);
+    if (SPEEDS.indexOf(m) < 0) return;
+    speedMode = m; pinned = true; autoPicture = false; verified = {}; store.set(SPEED_KEY, m);
     renderSpeed();
-    if (mode === 'remux' && !lazyRemux) { if (!quiet) hintToast('Stream method: ' + SPEED_LABEL[m]); load('remux', position(), true); }
+    var lim = speedLimit(m);
+    if (!quiet) hintToast(lim ? SPEED_LABEL[m] + ': ' + lim + ', so that part is converted instead.' : 'Stream method: ' + SPEED_LABEL[m]);
+    var same = !!streamParts && streamParts.pc === pictureCopyOn() && streamParts.ac === audioCopyOn() && !video.error && !el.msg.classList.contains('is-on');
+    if (mode === 'remux' && !lazyRemux && !same) load('remux', position(), true);
   }
   if (el.speedBtns) el.speedBtns.addEventListener('click', function (e) {
-    var b = e.target.closest && e.target.closest('button[data-speed]'); if (b && !b.disabled) setSpeed(b.getAttribute('data-speed'));
+    var b = e.target.closest && e.target.closest('button[data-speed]'); if (b) setSpeed(b.getAttribute('data-speed'));
   });
   // ------------------------------------------------------------ judging a stream by evidence, not by a stopwatch
   // A slow or interrupted connection looks, from the outside, like a codec the browser cannot play: nothing shows or sounds. So the player never judges a codec by
@@ -239,7 +273,8 @@
   //   - the picture size when the file's header has been read ('loadedmetadata'), which the browser sets as soon as it knows the picture track is usable;
   //   - the kind of error: a network error, or a decode error after both sound and picture decoded fine, is damaged or interrupted delivery, not a codec problem.
   // Delivery trouble is answered with the same stream method again (see recover); only proven decoding trouble changes the method, and only the part that failed.
-  var PLAYED_ENOUGH = 1.5;
+  var JUDGE_AFTER = 4;        // seconds of the movie that must really have played before the sound and picture are judged: decoders start late and a slow link delivers late
+  var PLAYED_ENOUGH = 1.5;    // when the browser itself reported an error, a shorter look is enough
   function decodedAudio() { return typeof video.webkitAudioDecodedByteCount === 'number' ? video.webkitAudioDecodedByteCount : null; }
   function decodedFrames() {
     try { if (video.getVideoPlaybackQuality) { var q = video.getVideoPlaybackQuality(); if (q && typeof q.totalVideoFrames === 'number') return q.totalVideoFrames; } } catch (_) { /* not available */ }
@@ -250,31 +285,37 @@
 
   // What the player saw when it changed a method, for whoever is working out why the cheaper one failed (browser console).
   function logStep(what) {
-    try { console.info('[stream] ' + what, { mode: mode, audioDecoded: decodedAudio(), pictureFrames: decodedFrames(), played: +playedSeconds().toFixed(2), error: video.error ? video.error.message : null, size: video.videoWidth + 'x' + video.videoHeight, attempts: attempts }); } catch (_) { /* no console */ }
+    try { console.info('[stream] ' + what, { mode: mode, method: speedMode, audioDecoded: decodedAudio(), pictureFrames: decodedFrames(), played: +playedSeconds().toFixed(2), error: video.error ? video.error.message : null, size: video.videoWidth + 'x' + video.videoHeight, attempts: attempts }); } catch (_) { /* no console */ }
   }
-  // Sound that is copied but the browser decodes none of it: one step down, where the sound is converted (the picture stays as it is). Only for this page view, never
-  // saved: the saved speed is what the viewer chose, and a failure that is hidden on every later visit cannot be looked into. The next visit tries the cheaper method again.
-  function fixSound(why, proven) {
-    if (mode !== 'remux' || !audioCopyOn()) return false;
-    if (pinned) { logStep('copied sound cannot be played (the method was chosen by the viewer, so it is left as it is)'); if (proven) techToast('No sound could be played with the stream method you chose. Pick a slower method if you want sound.'); return false; }
-    logStep('copied sound cannot be played: converting only the sound');
-    speedMode = pictureCopyOn() ? 'fast' : 'slowest';
+  function judgeKey() { var i = currentAudioIndex(), lp = liveParts(); return mode + '|' + partsToSpeed(lp.pc, lp.ac) + '|' + (i === null ? '' : i); }
+  // One step down for what failed. A failed sound is converted first (the picture stays a copy); a sound that is converted already and still not heard points at the copied
+  // picture's timing, so the picture is re-encoded next; a failed picture is re-encoded. The step lasts for this page view only (never saved: the saved method is the viewer's own
+  // choice, and a failure hidden on every later visit cannot be looked into). A method the viewer chose is never changed: the next step is offered in one tap instead.
+  function climb(audioBad, pictureBad, why, proven) {
+    if (mode !== 'remux') return false;
+    var pc = pictureCopyOn(), ac = audioCopyOn(), npc = pc, nac = ac, acNow = liveParts().ac;   // acNow: whether the server really copies the sound of this stream
+    if (pictureBad && pc) npc = false;
+    if (audioBad) { if (acNow) nac = false; else if (npc) npc = false; }
+    if (npc === pc && nac === ac) {
+      logStep('nothing left to step down to');
+      if (proven && audioBad && !pictureBad) techToast('No sound could be played, even with everything converted by the server. The sound of this file may be in a format that cannot be converted here.');
+      return false;
+    }
+    var next = partsToSpeed(npc, nac);
+    if (pinned) {
+      logStep('the ' + (audioBad ? 'sound' : 'picture') + ' does not play (the method was chosen by the viewer, so it is left as it is)');
+      if (proven) toast((audioBad ? 'No sound' : 'No picture') + ' could be played with the stream method you chose.', SPEED_LABEL[next], function () { setSpeed(next); });
+      return false;
+    }
+    logStep('stepping down to ' + SPEED_LABEL[next]);
+    speedMode = next; autoPicture = pictureBad && pc;
     techToast(why);
     renderSpeed();
     load('remux', resumePos(), true);
     return true;
   }
-  // A copied picture the browser cannot show: the same stream with only the picture re-encoded (the sound keeps its method). Not remembered.
-  function fixPicture(why) {
-    if (mode !== 'remux' || !pictureCopyOn()) return false;
-    if (pinned) { logStep('copied picture cannot be shown (the method was chosen by the viewer, so it is left as it is)'); return false; }
-    logStep('copied picture cannot be shown: re-encoding only the picture');
-    speedMode = audioCopyOn() ? 'slow' : 'slowest'; autoPicture = true;   // in memory only; Fastest and Fast stay selectable
-    techToast(why);
-    renderSpeed();
-    load('remux', resumePos(), true);
-    return true;
-  }
+  function fixSound(why, proven) { return climb(true, false, why, proven); }
+  function fixPicture(why) { return climb(false, true, why, false); }
   // Can this browser show HEVC? Then the server may copy an HEVC picture instead of re-encoding it (much cheaper). If it turns out not to show, the usual fallback re-encodes.
   var hevcOk = (function () {
     try { var v = document.createElement('video'); return !!v.canPlayType && v.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') !== ''; } catch (_) { return false; }
@@ -284,7 +325,6 @@
     var c = String(cfg.videoCodec || '').toLowerCase();
     return (c === 'h264' || c === 'avc1' || isHevc(c)) && !cfg.alwaysEncode;
   }
-  function copyAdvised() { return copyPossible() && (!isHevc(cfg.videoCodec) || hevcOk); }
 
   function load(m, startAt, autoplay, viaRecover) {
     if (m === 'direct' && !directUsable()) m = 'proxy';
@@ -292,6 +332,7 @@
     clearTimeout(retryTimer); retryTimer = null; offlineWaiting = false;
     if (!viaRecover) { attempts = 0; unopenedOk = 0; } else reloadN++;                  // a new attempt of the viewer's own (seek, method change, Retry) starts with fresh patience
     lastData = now(); starvedAt = 0; slowShown = false; gotMeta = false; lastPos = startAt || 0;
+    actual = null;
     updateCompatButton();
     var seq = ++loadSeq;
     if (startAbort) { try { startAbort.abort(); } catch (_) { } startAbort = null; }   // a lookup for an earlier jump is no longer wanted (the server stops it too)
@@ -300,6 +341,7 @@
     if (m === 'remux' && startAt > 0 && pictureCopyOn()) {
       hideMessage();
       player.classList.add('is-loading');
+      holdBegin();   // the stream that was playing stops now; the new one starts at the looked-up point (a method or audio change must not keep the old sound going meanwhile)
       // The same choices the stream will use, so the server can measure the sound's timing during this lookup instead of after it.
       var ask = '/start?t=' + startAt.toFixed(2) + (isHevc(cfg.videoCodec) ? '&hevc=1' : '')
         + (audioIndex !== null ? '&audio=' + audioIndex : '') + (audioCopyOn() ? '&acopy=1' : '');
@@ -331,6 +373,8 @@
     if (!src) { fail('This movie\'s source address is not approved or missing.'); return; }
     hideMessage();
     player.classList.add('is-loading');
+    if (hold.on) { hold.on = false; hold.pending = false; hold.resume = false; clearTimeout(hold.timer); }   // the new stream starts playing by itself
+    streamParts = m === 'remux' ? { pc: pictureCopyOn(), ac: audioCopyOn() } : null;
     video.src = src;
     video.load(); // note: load() resets playbackRate to defaultPlaybackRate, which setRate() keeps in sync
     if (m !== 'remux' && startAt > 0) {
@@ -468,8 +512,8 @@
     // everything decoded fine, then the data ended or was damaged: delivery, whatever the error is called
     if (a > 0 && f > 0) return recover('damaged');
     // the sound decodes nothing while the picture does: the sound's codec
-    if (meta && mode === 'remux' && audioCopyOn() && f > 0 && a === 0 && played >= PLAYED_ENOUGH)
-      return void fixSound('The sound could not be played as it is. Converting it…', true);
+    if (meta && mode === 'remux' && f > 0 && a === 0 && played >= PLAYED_ENOUGH && soundExpected())
+      return void climb(true, false, 'The sound could not be played. Trying the next stream method…', true);
     if (meta && a > 0 && f === 0 && played >= PLAYED_ENOUGH && expectsPicture()) return pictureFailed();
     // a decode error without proof: it may be a broken connection. One reconnect settles it; the same error again after that is the file.
     if (code === 3 && !repeat) return recover('decode?');
@@ -524,6 +568,16 @@
 
   video.addEventListener('error', function () { onError(); });
 
+  // The browser's 'ended' only says that this stream's data ran out. A compatibility stream is a pipe from ffmpeg whose clock starts at the last jump, and it also "ends" when the
+  // connection to the source dropped (ffmpeg then finishes the output as if the movie were over). So the movie has only ended when the real position is at the real end;
+  // an earlier end is a dropped stream and is reconnected at the same place. Only a real end is announced ('sa-ended', used by the next-episode switch).
+  var END_SLACK = 10;   // seconds before the file's stated length that still count as the end (stated and real lengths differ a little)
+  video.addEventListener('ended', function () {
+    var d = duration(), at = position();
+    if (d > 0 && at < d - END_SLACK) { logStep('the stream ended early at ' + at.toFixed(1) + ' s of ' + d.toFixed(1) + ' s: reconnecting'); recover('ended early'); return; }
+    video.dispatchEvent(new CustomEvent('sa-ended'));
+  });
+
   // Some phones accept a file (HEVC, 10-bit) and play the sound but cannot decode the picture, without any error. That is seen in the evidence: the sound
   // decodes, the movie has played, and no picture frame was ever decoded (see checkDecode), or the file's header says there is no usable picture.
   function expectsPicture() { return !cfg.inspected || !!cfg.videoCodec; }
@@ -541,21 +595,30 @@
                        : 'This device cannot decode the picture of this video (video: ' + (cfg.videoCodec || 'unknown') + '). The sound may still play.');
     }
   }
-  // Runs while the movie plays. Decides nothing until PLAYED_ENOUGH seconds have really played (so the data has arrived and has been given to the decoders).
+  // Runs while the movie plays. Decides nothing until JUDGE_AFTER seconds have really played (so the data has arrived and has been given to the decoders), and only when exactly
+  // one of sound and picture shows nothing: both silent is a stalled connection, not a format. A combination seen working once in this page view is not judged again.
+  function soundFailedAsIs() {
+    var at = resumePos();
+    if (!cfg.remuxEnabled || triedModes.remux) { techToast('This browser plays no sound from this file as it is.'); return; }
+    if (store.get(COMPAT_KEY) === '0') { toast('This browser plays no sound from this file as it is.', 'Compatibility mode', function () { setCompat(true); }); return; }
+    techToast('This browser plays no sound from this file as it is. Switching to compatibility mode…');
+    prevMode = mode; triedModes.remux = true; load('remux', at, true);
+  }
   function checkDecode() {
-    if (lazyRemux || retryTimer || judgedSeq === loadSeq || video.paused || playingSeq !== loadSeq) return;
+    if (lazyRemux || retryTimer || judgedSeq === loadSeq || video.paused || video.seeking || hold.on || playingSeq !== loadSeq) return;
     var played = playedSeconds();
     if (played >= 1 && healthySeq !== loadSeq) { healthySeq = loadSeq; unopenedOk = 0; }      // a second of the movie played: this connection works
-    if (played < PLAYED_ENOUGH) return;
+    if (played < JUDGE_AFTER) return;
     var a = decodedAudio(), f = decodedFrames();
-    if (a === null || f === null) { judgedSeq = loadSeq; return; }        // this browser has no counters (Firefox): it reports real failures as errors
-    if (a > 0 && f > 0) { judgedSeq = loadSeq; return; }                  // both decode: nothing to fix
-    if (f > 0 && a === 0) {
-      judgedSeq = loadSeq;
-      fixSound('The sound did not start. Switching to a more compatible stream method…', true);   // only when the sound is being copied (fixSound checks)
-    } else if (a > 0 && f === 0 && expectsPicture()) {
-      judgedSeq = loadSeq; pictureFailed();
-    }
+    judgedSeq = loadSeq;
+    if (a === null || f === null) return;                                 // this browser has no counters (Firefox): it reports real failures as errors
+    var key = judgeKey();
+    if (verified[key]) return;
+    if (a > 0 && f > 0) { verified[key] = true; return; }                 // both decode: nothing to fix
+    if (f > 0 && a === 0 && soundExpected()) {
+      if (mode === 'remux') climb(true, false, 'The sound did not start. Trying the next stream method…', true);
+      else soundFailedAsIs();
+    } else if (a > 0 && f === 0 && expectsPicture()) pictureFailed();
   }
   video.addEventListener('timeupdate', function () { if (!video.error && video.readyState > 0 && pendingPos === null) lastPos = offset + video.currentTime; noteData(); checkDecode(); });
   video.addEventListener('progress', noteData);
@@ -567,6 +630,7 @@
   });
   video.addEventListener('loadedmetadata', function () {
     metaSeq = loadSeq; gotMeta = true; noteData();
+    fetchReport();
     player.classList.remove('is-loading');
     if (!knownDuration && isFinite(video.duration)) knownDuration = video.duration;
     detectNativeAudio();
@@ -586,6 +650,7 @@
 
   // ------------------------------------------------------------ basic controls
   function togglePlay() {
+    if (hold.on) { hold.resume = false; holdEnd(false); showPlaying(false); return; }   // pressed while a jump is under way: the viewer wants it paused
     if (lazyRemux) { lazyRemux = false; load('remux', 0, true); return; }
     if (video.paused) startPlay(); else video.pause();
   }
@@ -598,7 +663,7 @@
     if (on) player.classList.add('has-played');
   }
   video.addEventListener('play', function () { showPlaying(true); });
-  video.addEventListener('pause', function () { showPlaying(false); player.classList.remove('is-idle'); });
+  video.addEventListener('pause', function () { if (hold.on) return; showPlaying(false); player.classList.remove('is-idle'); });   // a pause made to hold still while seeking is not shown as a pause
 
   function updateTime() {
     var d = duration(), p = position();
@@ -621,6 +686,27 @@
   video.addEventListener('durationchange', updateTime);
 
   var seeking = false;
+  // Holding still while the viewer jumps: the picture and the sound stop the moment a skip, key press or drag of the bar begins, and start again once the new position is ready
+  // (a converted stream has to restart there, which can take a moment; the old position must not keep playing meanwhile).
+  var hold = { on: false, resume: false, pending: false, timer: null };
+  function holdBegin() {
+    if (hold.on) return;
+    hold.on = true; hold.pending = false; hold.resume = !video.paused && !video.ended;
+    if (hold.resume) video.pause();
+    clearTimeout(hold.timer); hold.timer = setTimeout(function () { holdEnd(true); }, 30000);   // never stays held
+  }
+  function holdEnd(resume) {
+    if (!hold.on) return;
+    var again = resume && hold.resume;
+    hold.on = false; hold.pending = false; hold.resume = false; clearTimeout(hold.timer);
+    if (again) startPlay();
+  }
+  video.addEventListener('seeked', function () { if (hold.on && hold.pending) holdEnd(true); });
+  // The bar was let go without a new position (dragged back to where it was): nothing will seek, so carry on.
+  function seekReleased() { setTimeout(function () { if (hold.on && !hold.pending) holdEnd(true); }, 150); }
+  el.seek.addEventListener('pointerup', seekReleased);
+  el.seek.addEventListener('pointercancel', seekReleased);
+  el.seek.addEventListener('keyup', seekReleased);
   // The played part of the bar and the thumb use the same fraction, so they always agree.
   function paintSeek(f) { el.seekWrap.style.setProperty('--p', f); }
   // A small time label follows the pointer over the bar (and the thumb while dragging).
@@ -637,6 +723,7 @@
   });
   el.seekWrap.addEventListener('pointerleave', function () { if (!seeking) el.seekWrap.classList.remove('is-tip'); });
   el.seek.addEventListener('input', function () {
+    holdBegin();
     seeking = true;
     var f = el.seek.value / 1000;
     el.cur.textContent = fmt(f * duration()); paintSeek(f); showTip(f);
@@ -648,6 +735,7 @@
   });
   function seekTo(t) {
     t = Math.max(0, Math.min(duration() || t, t));
+    holdBegin(); hold.pending = true;
     if (lazyRemux) { lazyRemux = false; load('remux', t, true); return; }
     if (mode === 'remux') {
       // The remux stream is not seekable: restart it at the requested position (ffmpeg -ss).
@@ -691,7 +779,7 @@
 
   // ------------------------------------------------------------ gestures on the picture (touch and mouse)
   //   tap / click ............ play or pause
-  //   double tap / click ..... left side: back 10 s · right side: forward 10 s (keep tapping to keep skipping) · middle: fullscreen
+  //   double tap / click ..... outer 22 % left: back 10 s · outer 22 % right: forward 10 s (keep tapping to keep skipping) · middle: fullscreen
   //   press and hold ......... 2× speed while held, back to the normal speed on release
   var G = { HOLD_MS: 380, DOUBLE_MS: 280, CHAIN_MS: 600, MOVE: 14, SKIP: 10, HOLD_RATE: 2 };
   var gDown = null, gHoldTimer = null, gHolding = false, gTapTimer = null, gLastTap = null, gChain = null;
@@ -700,7 +788,7 @@
 
   function zoneOf(e) {
     var r = video.getBoundingClientRect(), x = (e.clientX - r.left) / Math.max(1, r.width);
-    return x < 0.35 ? 'back' : x > 0.65 ? 'fwd' : 'mid';
+    return x < 0.22 ? 'back' : x > 0.78 ? 'fwd' : 'mid';   // the outer 22 % on each side skip; everything between is play / pause and fullscreen
   }
   function flash(zone, text) {
     var f = flashEls[zone]; if (!f) return;
@@ -710,6 +798,7 @@
   }
   // Several quick skips are added up and applied once: a remux stream has to restart for every seek, so one jump is much cheaper than five.
   function skip(zone) {
+    holdBegin();
     if (gSkipPending === 0) gSkipBase = position();
     gSkipPending += zone === 'fwd' ? G.SKIP : -G.SKIP;
     flash(zone, Math.abs(gSkipPending) + ' s');
@@ -1470,15 +1559,20 @@
     if (cfg.defaultAudio != null) return cfg.defaultAudio;
     return audioTracks.length ? audioTracks[0].index : null;
   }
+  function isJapaneseNative(t) {
+    var s = ((t.language || '') + ' ' + (t.label || '')).toLowerCase();
+    return /(^|[^a-z])(ja|jpn|jp|japanese)([^a-z]|$)/.test(s);
+  }
   function isEnglishNative(t) {
     var s = ((t.language || '') + ' ' + (t.label || '')).toLowerCase();
     return /(^|[^a-z])(en|eng|english)([^a-z]|$)/.test(s);
   }
-  // Safari exposes audioTracks: pick English there directly (no server work). Other browsers are handled by the remux start.
+  // Safari exposes audioTracks: pick Japanese (else English) there directly (no server work). Other browsers are handled by the remux start.
   function preferEnglishNatively() {
     if (!nativeAudio || mode === 'remux') return;
     var idx = -1, i;
-    for (i = 0; i < video.audioTracks.length; i++) if (isEnglishNative(video.audioTracks[i])) { idx = i; break; }
+    for (i = 0; i < video.audioTracks.length; i++) if (isJapaneseNative(video.audioTracks[i])) { idx = i; break; }
+    if (idx < 0) for (i = 0; i < video.audioTracks.length; i++) if (isEnglishNative(video.audioTracks[i])) { idx = i; break; }
     if (idx < 0) return;
     for (i = 0; i < video.audioTracks.length; i++) video.audioTracks[i].enabled = (i === idx);
   }
@@ -1644,16 +1738,32 @@
   // ------------------------------------------------------------ files without stream information
   // A failed or missing ffprobe run at scan time leaves a file without tracks. Ask the server to inspect it now so the audio list appears.
   var inspecting = false;
-  function startLazyEnglish() {
+  // Facts only (see the stream method notes): what the viewer should hear, the file's first audio track (the only one a browser plays), and that track's codec.
+  function preferredName() {
+    var t = audioTracks.filter(function (a) { return a.index === cfg.preferredAudio; })[0];
+    if (!t) return 'preferred';
+    var s = ((t.lang || '') + ' ' + (t.title || '')).toLowerCase();
+    return /(^|[^a-z])(ja|jpn|jp|japanese)([^a-z]|$)/.test(s) ? 'Japanese' : /(^|[^a-z])(en|eng|english)([^a-z]|$)/.test(s) ? 'English' : (t.lang || 'preferred');
+  }
+  function startPlan() {
+    if (!cfg.remuxEnabled || !audioTracks.length) return null;
+    var first = audioTracks[0];
+    var wanted = audioTracks.filter(function (a) { return a.index === cfg.preferredAudio; })[0] || first;
+    if (audioTracks.length > 1 && wanted !== first) return { audio: wanted, why: 'audio' };
+    if (!browserPlaysAudio(first.codec)) return { audio: first, why: 'sound' };
+    return null;
+  }
+  function startLazyEnglish(plan) {
     clearTimeout(retryTimer); retryTimer = null; offlineWaiting = false;
     lazyRemux = true; mode = 'remux'; offset = 0; updateCompatButton();
     video.pause(); video.removeAttribute('src'); video.load();
     audioIndex = cfg.preferredAudio; prevMode = 'direct'; triedModes.remux = true;
     player.classList.remove('is-loading');
-    setStatus('Ready. Starts with the English audio track (compatibility mode converts the stream when you press play).');
+    setStatus(plan && plan.why === 'sound' ? 'Ready. This browser cannot play the sound of this file as it is, so compatibility mode converts the stream when you press play.'
+      : 'Ready. Starts with the ' + preferredName() + ' audio track (compatibility mode converts the stream when you press play).');
     updateTime();
   }
-  function startEnglishNow() {
+  function startEnglishNow(plan) {
     var t = position();
     audioIndex = cfg.preferredAudio; prevMode = mode === 'proxy' ? 'proxy' : 'direct'; triedModes.remux = true; lazyRemux = false;
     load('remux', t < 0.5 ? 0 : t, !video.paused);
@@ -1672,22 +1782,22 @@
         if (d.audioCodec) cfg.audioCodec = d.audioCodec;
         if (!knownDuration && d.duration) { knownDuration = d.duration; updateTime(); }
         renderAudioMenu(); renderSubMenu();
-        var needEnglish = audioTracks.length > 1 && cfg.preferredAudio != null && cfg.preferredAudio !== cfg.defaultAudio;
-        if (!needEnglish) return;
+        var plan = startPlan();
+        if (!plan) return;
         if (cfg.remuxEnabled && (mode === 'direct' || mode === 'proxy') && !lazyRemux && position() < 8 && !gSkipPending) {
-          if (video.paused && position() < 0.5) startLazyEnglish();
-          else startEnglishNow();           // autoplay already began with the file's default track: continue from here with the English one
-        } else if (currentAudioIndex() !== cfg.preferredAudio) hintToast('English audio found. Use the 🎧 menu to switch to it.');
+          if (video.paused && position() < 0.5) startLazyEnglish(plan);
+          else startEnglishNow(plan);       // autoplay already began with the file's own first track: continue from here with the right one
+        } else if (plan.why === 'audio' && currentAudioIndex() !== plan.audio.index) hintToast(preferredName() + ' audio found. Use the 🎧 menu to switch to it.');
         renderAudioMenu();
       })
       .catch(function () { inspecting = false; renderAudioMenu(); });
   }
 
   // ------------------------------------------------------------ start
-  var needEnglishSwitch = audioTracks.length > 1 && cfg.preferredAudio != null && cfg.preferredAudio !== cfg.defaultAudio;
-  if (needEnglishSwitch && cfg.remuxEnabled && cfg.directUrl) {
-    // The file's default track is not English: start (automatically) from a remux that carries the English track.
-    audioIndex = cfg.preferredAudio;
+  var startNeeds = startPlan();
+  if (startNeeds && cfg.directUrl) {
+    // The sound to hear is not the file's first audio track, or the first track is a codec no browser plays: start from a compatibility stream (at Fastest) that carries the right track.
+    audioIndex = startNeeds.audio.index;
     prevMode = 'direct';
     triedModes.remux = true;
     renderAudioMenu();

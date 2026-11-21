@@ -44,6 +44,7 @@ public static class MediaEndpoints
         g.MapMethods("/stream/{fileId:int}", new[] { "GET", "HEAD" }, StreamAsync);
         g.MapGet("/remux/{fileId:int}", RemuxAsync);
         g.MapGet("/remux/{fileId:int}/start", RemuxStartAsync);
+        g.MapGet("/remux/{fileId:int}/report", RemuxReport);
         g.MapGet("/subtitle/{id:int}", SubtitleAsync);
         g.MapGet("/embsub/{fileId:int}", EmbeddedStatusAsync);
         g.MapGet("/embsub/{fileId:int}/window", EmbeddedWindowAsync);
@@ -174,6 +175,12 @@ public static class MediaEndpoints
             }
         }
         log.LogInformation("Compatibility stream for file {FileId}: picture {Picture}, sound {Sound} ({Why}).", fileId, copyVideo ? "copied" : "re-encoded", copyAudio ? "copied" : "converted", audioWhy);
+        var pictureWhy = copyVideo ? "ok"
+            : _alwaysEncode ? "the server is set to always re-encode the picture"
+            : string.Equals(video, "encode", StringComparison.OrdinalIgnoreCase) ? "the stream method asks for it"
+            : !CanCopyVideo(videoStream?.Codec, hevc == "1") ? $"{(string.IsNullOrWhiteSpace(videoStream?.Codec) ? "this" : videoStream!.Codec!.ToUpperInvariant())} picture cannot be copied"
+            : "a copied picture cannot start exactly where you jumped";
+        var soundWhy = audioWhy switch { "not asked for" => "the stream method asks for it", "ok" => "ok", _ => audioWhy };
 
         // A full re-encode goes to the graphics hardware when this machine has a usable encoder (HardwareEncoder); a copied picture never needs one.
         HwEncoderInfo? hw = null;
@@ -183,6 +190,7 @@ public static class MediaEndpoints
             catch (OperationCanceledException) { return Results.StatusCode(499); }
         }
 
+        StreamReports.Put(s, fileId, copyVideo, pictureWhy, copyAudio, soundWhy, copyVideo ? null : hw?.Name ?? "CPU");
         var slot = copyVideo ? _copySlots : hw != null ? _hwEncodeSlots : _encodeSlots;   // null: no limit
         var holdsSlot = false;
         async Task<bool> AcquireAsync(SemaphoreSlim? sem, TimeSpan wait)
@@ -293,6 +301,7 @@ public static class MediaEndpoints
                         return Results.Problem("The server is already re-encoding as many streams as it can. Try again shortly.", statusCode: 503);
                     }
                     hw = null;
+                    StreamReports.Put(s, fileId, copyVideo, pictureWhy, copyAudio, soundWhy, "CPU");
                     proc = StartFfmpeg(null);
                     n = await proc.StandardOutput.BaseStream.ReadAsync(first, ct);
                     if (n > 0)
@@ -520,6 +529,34 @@ public static class MediaEndpoints
     /// Where the picture and the sound start for a seek, measured by the seek lookup (/start) so the stream that follows a moment later does not have to measure it again.
     /// Short-lived and small: a value only helps the request that comes right after.
     /// </summary>
+    /// <summary>What a viewer's current compatibility stream really does (copied or converted, and why), so the player can show the truth instead of the method that was asked for.</summary>
+    internal sealed record StreamReport(bool PictureCopied, string PictureWhy, bool SoundCopied, string SoundWhy, string? Encoder, long Seq);
+    internal static class StreamReports
+    {
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, StreamReport Report)> Items = new();
+        private static long _seq;
+        public static void Put(string? viewer, int fileId, bool pictureCopied, string pictureWhy, bool soundCopied, string soundWhy, string? encoder)
+        {
+            if (string.IsNullOrWhiteSpace(viewer) || viewer.Length > 64) return;
+            var now = DateTime.UtcNow;
+            if (Items.Count > 2000) foreach (var kv in Items) if (now - kv.Value.At > TimeSpan.FromMinutes(30)) Items.TryRemove(kv.Key, out _);
+            Items[viewer + "|" + fileId] = (now, new StreamReport(pictureCopied, pictureWhy, soundCopied, soundWhy, encoder, Interlocked.Increment(ref _seq)));
+        }
+        public static StreamReport? Get(string? viewer, int fileId)
+            => !string.IsNullOrWhiteSpace(viewer) && Items.TryGetValue(viewer + "|" + fileId, out var e) ? e.Report : null;
+    }
+
+    private static IResult RemuxReport(int fileId, string? s = null)
+    {
+        var r = StreamReports.Get(s, fileId);
+        return r == null ? Results.NoContent() : Results.Json(new
+        {
+            picture = r.PictureCopied ? "copied" : "re-encoded", pictureWhy = r.PictureWhy,
+            sound = r.SoundCopied ? "copied" : "converted", soundWhy = r.SoundWhy,
+            encoder = r.Encoder, seq = r.Seq
+        });
+    }
+
     internal static class SyncTimes
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, (double? Video, double? Audio) Times)> Items = new();

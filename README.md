@@ -342,3 +342,23 @@ Copying the picture (the usual compatibility-mode case) needs no encoder at all.
 - Image-based embedded subtitles (Blu-ray PGS, DVD VobSub) cannot be shown; text-based embedded and external subtitle files are playable.
 - Browsers can't decode every codec (HEVC/10-bit, AC3/DTS audio, some MKVs). Without ffmpeg configured those files show the error state instead of failing silently.
 - In-memory login throttling resets on restart; the scan gate is per process (single instance only).
+
+## Player: stream methods and seeking
+
+**Audio to start with:** Japanese when the file has a Japanese track, otherwise English, otherwise the file's default, otherwise the first track (`AudioPreference`).
+
+**How the player picks a stream method** (Fastest = picture and sound copied, Fast = sound converted, Slow = picture re-encoded, Slowest = both converted):
+
+1. *Before playing* only certain facts decide whether the file needs compatibility mode: the track to hear is not the file's first audio track (browsers play the first one and cannot switch), or the first track's codec is one no browser plays (DTS, TrueHD, PCM ...). Otherwise the file plays as it is.
+2. Compatibility mode always starts at **Fastest**. What the browser merely claims it can play never picks a method.
+3. After the movie has really played for 4 seconds, the result is judged by evidence (did the browser decode sound, did it decode picture frames). Only when exactly one of them shows nothing is anything changed.
+4. Only the part that failed steps down, one step at a time, each step judged again the same way: failed sound is converted first; a sound that is already converted and still silent points at the copied picture, so the picture is re-encoded; a failed picture is re-encoded. Nothing steps back up by itself, and a combination seen working is not judged again. A file that plays as it is but without sound also moves to compatibility mode (unless compatibility mode was switched off by hand; then a one-tap button is offered).
+5. A method the viewer clicks is applied at once (playing or paused), is remembered for that file, is never changed by the player, and is never greyed out. If it does not work the player says so and offers the next step in one tap. Where the server cannot copy something (DTS sound, non-H.264 picture), that part is converted and the player says so.
+
+Console lines starting with `[stream]` show every step and the counters it was based on.
+
+**Seeking and changes hold still:** a skip, key press, drag of the seek bar, audio-track change or method change stops the old picture and sound at once and plays on when the new position is ready. A video you had paused stays paused after a skip.
+
+**What is really running:** after a compatibility stream opens, the player asks the server (`/media/remux/{id}/report`) what it actually did for that stream and shows it in the stream method panel and the status line, e.g. "Running now: Picture copied, sound converted (the sound starts 0.8 s from the picture)". The method buttons show what was asked for; this line shows the truth. Step-down decisions use it too (a sound the server already converts is not "converted again"). Hidden for viewers when technical details are hidden (Admin > Site).
+
+**Next episode trigger:** series pages only (`series.js` is not loaded on movie pages). There is no clock or timer: the player announces `sa-ended` when the browser's `ended` event arrives while the real position (jump offset included) is within 10 s of the file's length, and the switch then opens the next episode. An `ended` that arrives earlier (a compatibility stream whose source connection dropped finishes like a complete movie) is reconnected at the same place and never starts the next episode.

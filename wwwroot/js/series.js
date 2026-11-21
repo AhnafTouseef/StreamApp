@@ -54,7 +54,8 @@
     });
   }
   if (nextUrl) {
-    video.addEventListener('ended', function () { if (pref()) window.location.href = nextUrl; });
+    // 'sa-ended' comes from the player and means the episode really reached its end (a stream that merely ran out of data earlier is reconnected by the player instead).
+    video.addEventListener('sa-ended', function () { if (pref()) window.location.href = nextUrl; });
   }
 
   // Arrived through "next episode": start it (best effort; browsers may still require a tap).
