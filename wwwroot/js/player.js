@@ -218,7 +218,7 @@
   function actualText(d) {
     var pic = d.picture === 'copied' ? 'Picture copied' : 'Picture re-encoded' + (d.pictureWhy && d.pictureWhy !== 'ok' ? ' (' + d.pictureWhy + ')' : '') + (d.encoder ? ' on ' + d.encoder : '');
     var snd = d.sound === 'copied' ? 'sound copied' : 'sound converted' + (d.soundWhy && d.soundWhy !== 'ok' ? ' (' + d.soundWhy + ')' : '');
-    return 'Running now: ' + pic + ', ' + snd + '.';
+    return 'Running now: ' + pic + ', ' + snd + '.' + audioStatus();
   }
   // Asks the server what it really did for this stream (a method can ask for a copy and the server may still convert, for example when the sound would not line up).
   function fetchReport() {
@@ -229,7 +229,7 @@
       .then(function (d) {
         if (!d || seq !== loadSeq || mode !== 'remux') return;
         actual = { seq: seq, pc: d.picture === 'copied', ac: d.sound === 'copied', d: d };
-        if (!ui.hideTech) { statusBase = 'Compatibility mode. ' + actualText(d); setStatus(statusBase); }
+        if (!ui.hideTech) { statusBase = 'Compatibility mode. ' + actualText(d); setStatus(statusBase); }   // actualText names the audio track too
         renderSpeed();
       })
       .catch(function () { /* the report is only information */ });
@@ -285,7 +285,7 @@
 
   // What the player saw when it changed a method, for whoever is working out why the cheaper one failed (browser console).
   function logStep(what) {
-    try { console.info('[stream] ' + what, { mode: mode, method: speedMode, audioDecoded: decodedAudio(), pictureFrames: decodedFrames(), played: +playedSeconds().toFixed(2), error: video.error ? video.error.message : null, size: video.videoWidth + 'x' + video.videoHeight, attempts: attempts }); } catch (_) { /* no console */ }
+    try { console.info('[stream] ' + what, { mode: mode, method: speedMode, audioTrack: currentAudioIndex(), audioDecoded: decodedAudio(), pictureFrames: decodedFrames(), played: +playedSeconds().toFixed(2), error: video.error ? video.error.message : null, size: video.videoWidth + 'x' + video.videoHeight, attempts: attempts }); } catch (_) { /* no console */ }
   }
   function judgeKey() { var i = currentAudioIndex(), lp = liveParts(); return mode + '|' + partsToSpeed(lp.pc, lp.ac) + '|' + (i === null ? '' : i); }
   // One step down for what failed. A failed sound is converted first (the picture stays a copy); a sound that is converted already and still not heard points at the copied
@@ -381,9 +381,9 @@
       video.addEventListener('loadedmetadata', function once() { video.removeEventListener('loadedmetadata', once); video.currentTime = startAt; });
     }
     if (autoplay) startPlay();
-    statusBase = m === 'direct' ? 'Streaming directly from the source server.'
+    statusBase = (m === 'direct' ? 'Streaming directly from the source server.'
       : m === 'proxy' ? 'Streaming through the application (the browser could not reach the source directly).'
-      : remuxDescription();
+      : remuxDescription()) + audioStatus();
     setStatus(statusBase);
     renderSpeed();
   }
@@ -1555,9 +1555,27 @@
   }
   function currentAudioIndex() {
     if (audioIndex !== null) return audioIndex;
-    if (mode === 'remux' && cfg.preferredAudio != null) return cfg.preferredAudio;   // the server also starts with English
-    if (cfg.defaultAudio != null) return cfg.defaultAudio;
-    return audioTracks.length ? audioTracks[0].index : null;
+    if (mode === 'remux' && cfg.preferredAudio != null) return cfg.preferredAudio;   // a compatibility stream carries the track the server picks (Japanese, else English, ...)
+    var d = directAudioIndex();
+    return d != null ? d : (cfg.defaultAudio != null ? cfg.defaultAudio : null);
+  }
+  // The audio track a browser plays when it plays the file as it is. It depends on the container (measured in Chromium with tone files: an MP4 plays the track
+  // flagged default, an MKV plays the first track whatever is flagged). A browser that lists the tracks itself (Safari) is asked instead of guessed.
+  function directAudioIndex() {
+    if (!audioTracks.length) return null;
+    if (nativeAudio && video.audioTracks.length === audioTracks.length) {
+      for (var k = 0; k < video.audioTracks.length; k++) if (video.audioTracks[k].enabled) return audioTracks[k].index;
+    }
+    if (/^\.?(mp4|m4v|mov|3gp|3g2)$/i.test(String(cfg.extension || ''))) {   // ISO base media files: the track flagged default
+      for (var i = 0; i < audioTracks.length; i++) if (audioTracks[i].isDefault) return audioTracks[i].index;
+    }
+    return audioTracks[0].index;
+  }
+  // The track that is playing, for the status line and the debug output.
+  function audioStatus() {
+    var cur = currentAudioIndex();
+    for (var i = 0; i < audioTracks.length; i++) if (audioTracks[i].index === cur) return ' Audio: ' + label(audioTracks[i], i) + '.';
+    return '';
   }
   function isJapaneseNative(t) {
     var s = ((t.language || '') + ' ' + (t.label || '')).toLowerCase();
@@ -1628,7 +1646,7 @@
   }
 
   function chooseAudio(index) {
-    if (index === currentAudioIndex() && mode === 'remux') return;
+    if (index === currentAudioIndex()) return;   // the track that already plays: nothing to restart
     var at = lazyRemux ? 0 : position();
     lazyRemux = false;
     if (mode !== 'remux') prevMode = mode;
@@ -1747,10 +1765,11 @@
   }
   function startPlan() {
     if (!cfg.remuxEnabled || !audioTracks.length) return null;
-    var first = audioTracks[0];
-    var wanted = audioTracks.filter(function (a) { return a.index === cfg.preferredAudio; })[0] || first;
-    if (audioTracks.length > 1 && wanted !== first) return { audio: wanted, why: 'audio' };
-    if (!browserPlaysAudio(first.codec)) return { audio: first, why: 'sound' };
+    // What the browser itself plays when it plays the file as it is, compared with what the viewer should hear: only a different track needs a compatibility stream.
+    var playsNow = audioTracks.filter(function (a) { return a.index === directAudioIndex(); })[0] || audioTracks[0];
+    var wanted = audioTracks.filter(function (a) { return a.index === cfg.preferredAudio; })[0] || playsNow;
+    if (audioTracks.length > 1 && wanted !== playsNow) return { audio: wanted, why: 'audio' };
+    if (!browserPlaysAudio(playsNow.codec)) return { audio: playsNow, why: 'sound' };
     return null;
   }
   function startLazyEnglish(plan) {

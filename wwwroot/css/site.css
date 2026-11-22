@@ -707,3 +707,8 @@ button.set-row:hover { background: rgba(255,255,255,.08); }
 .watch-info > *, .detail-info > *, .detail-grid > * { min-width: 0; }
 .series-picker { min-width: 0; max-width: 100%; }
 .season-tabs { max-width: 100%; overscroll-behavior-x: contain; }
+
+/* Long names without spaces (Some.Movie.2026.1080p.BluRay.x264-GROUP): the title, file name, episode text and file picker wrap inside the screen instead of running past it. */
+.watch-info h1, .watch-info .muted, .watch-info .ep-now, .watch-info .ep-overview, .watch-info p { overflow-wrap: anywhere; word-break: normal; max-width: 100%; }
+.picker a { max-width: 100%; overflow-wrap: anywhere; }
+.watch-info .picker { min-width: 0; }
